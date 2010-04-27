@@ -15,7 +15,7 @@ def build():
   env.AppendUnique(
     CCFLAGS=['-fPIC', '-fno-exceptions', '-Wall', '-Werror', '-ggdb'],
     LINKFLAGS=['-fPIC'],
-    LIBS=['base', 'rt', 'pthread', 'v8', 'event'],
+    LIBS=['base', 'rt', 'pthread', 'v8', 'event', 'curl'],
   )
 
   env.Append(
@@ -26,7 +26,7 @@ def build():
   end_program = env.Program(
       '${BUILD_DIR}/entd',
       [os.path.join("${BUILD_DIR}", fn) for fn in
-       ("main.cc", "entd.cc", "utils.cc")]
+       ("main.cc", "entd.cc", "utils.cc", "jshttp.cc")]
       )
 
   env.Install('${SYSROOT}/usr/sbin/', end_program)

@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <v8.h>
 #include "entd/utils.h"
+#include "entd/jshttp.h"
 
 namespace entd {
 
@@ -19,7 +20,9 @@ void dispatch_OnTimeout(int fd, short flags, void* arg);
 // Class to represent a pending timeout event.
 class Timeout {
  public:
-  Timeout() {}
+  Timeout()
+      : entd_(NULL), event_(NULL) {
+  }
 
   virtual ~Timeout() {
     v8_value_.Dispose();
@@ -78,6 +81,57 @@ class Timeout {
 };
 
 uint32_t Timeout::sequence = 0;
+
+// Class to handle calling native timeouts. Implemented using libevent.
+class NativeTimeout
+{
+ public:
+  NativeTimeout(Entd::NativeTimeoutCallback cb, void* data,
+                uint32_t interval_ms)
+      : callback_(cb), data_(data),
+        interval_(interval_ms * 1000),
+        handle_(0), event_(NULL) {
+  }
+  ~NativeTimeout() {
+    event_del(event_);
+    delete event_;
+  }
+  void Initialize() {
+    handle_ = s_handle_counter_++;
+    event_ = new struct event;
+    event_set(event_, 0, 0, &EventCallback, this);
+    Start();
+  }
+  // Calling Start on a running timeout will simply reset the timer
+  void Start() {
+    struct timeval tv = { 0, interval_ };
+    event_add(event_, &tv);
+  }
+  uint32_t GetHandle() { return handle_; }
+
+ private:
+  // Calls the set callback. If the callback returns 'true', start it again.
+  static void EventCallback(int fd, short flags, void* arg) {
+    NativeTimeout* timeout = reinterpret_cast<NativeTimeout*>(arg);
+    bool res = timeout->callback_(timeout->data_);
+    if (res) {
+      timeout->Start();
+    }
+  }
+  // Callback data
+  Entd::NativeTimeoutCallback callback_;
+  void* data_;
+  uint32_t interval_;
+  // Handle identifier (simple integer incrementing from 1)
+  uint32_t handle_;
+  // libevent data
+  struct event* event_;
+  // Global handle counter
+  static uint32_t s_handle_counter_;
+  DISALLOW_COPY_AND_ASSIGN(NativeTimeout);
+};
+
+uint32_t NativeTimeout::s_handle_counter_ = 1;
 
 // Used to get a the raw Entd* associated with a JavaScript object, if there
 // is one.
@@ -149,10 +203,25 @@ Handle<Value> dispatch_Print(const Arguments& args) {
   return Undefined();
 }
 
+// Called by v8 for the global object's print() method.
+Handle<Value> dispatch_PrintLn(const Arguments& args) {
+  for (int i = 0; i < args.Length(); ++i) {
+    Handle<Value> arg = args[i];
+    String::Utf8Value value(arg);
+    std::cout << *value;
+  }
+  std::cout << "\n";
+  std::cout.flush();
+  return Undefined();
+}
+
 // Static storage for the template object.
 Persistent<FunctionTemplate> Entd::entd_template_;
 
-Entd::Entd() {}
+Entd::Entd()
+    : jshttp_(NULL) {
+}
+
 
 Entd::~Entd() {
   // Clean up any pending timeouts.
@@ -161,7 +230,7 @@ Entd::~Entd() {
     timeout->CancelEvent();
     delete timeout;
   }
-
+  delete jshttp_;
   context_.Dispose();
 }
 
@@ -196,6 +265,11 @@ Local<Object> Entd::MakeEntd() {
   Handle<Object> result = function_t->GetFunction()->NewInstance();
   result->SetPointerInInternalField(0, this);
 
+  jshttp_ = new JSHttp(this, NULL);
+  jshttp_->Initialize();
+
+  result->Set(String::New("http"), jshttp_->GetObject(), ReadOnly);
+
   return handle_scope.Close(result);
 }
 
@@ -213,12 +287,15 @@ bool Entd::Initialize() {
   Handle<ObjectTemplate> global_template = ObjectTemplate::New();
   global_template->Set(String::New("print"),
                        FunctionTemplate::New(dispatch_Print), ReadOnly);
+  global_template->Set(String::New("println"),
+                       FunctionTemplate::New(dispatch_PrintLn), ReadOnly);
   context_ = Context::New(NULL, global_template);
 
   // Switch to our context and instantiate the entd object.
   Context::Scope context_scope(context_);
   Handle<Object> global = context_->Global();
-  global->Set(String::New("entd"), Entd::MakeEntd());
+  Local<Object> entd_object = Entd::MakeEntd();
+  global->Set(String::New("entd"), entd_object, ReadOnly);
 
   return true;
 }
@@ -305,11 +382,51 @@ void Entd::OnTimeout(const Timeout& timeout) {
   }
 }
 
+// Initialize and start a timeout
+uint32_t Entd::SetNativeTimeout(NativeTimeoutCallback cb, void* data,
+                                uint32_t interval_ms) {
+  NativeTimeout* timeout = new NativeTimeout(cb, data, interval_ms);
+  uint32_t handle = timeout->GetHandle();
+  native_timeouts_[handle] = timeout;
+  timeout->Initialize();
+  return handle;
+}
+
+// Start an existing timeout (resets timer if already started)
+// Returns false if timeout doesn't exist
+bool Entd::StartNativeTimeout(uint32_t handle) {
+  std::map<uint32_t, NativeTimeout*>::iterator iter =
+      native_timeouts_.find(handle);
+  if (iter != native_timeouts_.end()) {
+    iter->second->Start();
+    return true;
+  }
+  return false;
+}
+
+// Cancel and delete an existing timeout
+// Returns false if timeout doesn't exist
+bool Entd::ClearNativeTimeout(uint32_t handle) {
+  std::map<uint32_t, NativeTimeout*>::iterator iter =
+      native_timeouts_.find(handle);
+  if (iter != native_timeouts_.end()) {
+    delete iter->second;
+    native_timeouts_.erase(iter);
+    return true;
+  }
+  return false;
+}
+
 bool Entd::ExecuteFile(const std::string& filename,
                        Handle<Value>* result) {
   HandleScope handle_scope;
   Handle<String> source = utils::ReadFile(filename);
-  return ExecuteString(source, filename, result);
+  if (!source.IsEmpty()) {
+    return ExecuteString(source, filename, result);
+  } else {
+    LOG(WARNING) << "Error reading source file: " << filename;
+    return false;
+  }
 }
 
 bool Entd::ExecuteString(const Handle<String>& source,

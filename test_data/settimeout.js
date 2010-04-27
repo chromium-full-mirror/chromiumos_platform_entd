@@ -1,7 +1,3 @@
-function println(msg) {
-  print(msg + '\n');
-}
-
 println("starting timeouts");
 
 entd.setTimeout("println('string timeout')", 1000);

@@ -5,19 +5,26 @@
 #ifndef ENTD_ENTD_H_
 #define ENTD_ENTD_H_
 
+#include <map>
+#include <string>
+#include <vector>
+
 #include <base/basictypes.h>
 #include <base/logging.h>
-#include <string>
 #include <v8.h>
-#include <vector>
+
 #include "entd/utils.h"
 
 namespace entd {
 
 class Timeout;
+class NativeTimeout;
+class JSHttp;
 
 class Entd {
  public:
+  typedef bool(* NativeTimeoutCallback)(void*);
+
   Entd();
   virtual ~Entd();
 
@@ -50,6 +57,25 @@ class Entd {
   // Invoked when the timeout specified by timeout_handle fires.
   virtual void OnTimeout(const Timeout& timeout);
 
+  // Call a native function at a specified interval specified in miliseconds
+  // This sets up and starts the timeout.
+  // NativeTimeoutCallback is a typedef'd function that receives 'data'
+  //  as its argument and returns true if it needs to be called again or
+  //  false if it has completed. (Can be restarted with StartNativeTimeout())
+  // Returns an integer handle that can be used to cancel the timeout
+  virtual uint32_t SetNativeTimeout(NativeTimeoutCallback cb, void *data,
+                                    uint32_t interval_ms);
+
+  // Start a native timeout after it has stopped. If the timeout is already
+  //  started this will reset the timer.
+  // Returns false if the timeout doesn't exist
+  virtual bool StartNativeTimeout(uint32_t handle);
+
+  // Cancels a native timeout function. This cancels any event timers,
+  //  removes the timeout from the list, and deletes the timeout.
+  // Returns false if the timeout doesn't exist
+  virtual bool ClearNativeTimeout(uint32_t timeout_handle);
+
  private:
   // Executes a file within the current v8 context.
   virtual bool ExecuteFile(const std::string& filename,
@@ -68,6 +94,10 @@ class Entd {
 
   std::vector<Timeout*> timeout_list_;
   v8::Persistent<v8::Context> context_;
+
+  std::map<uint32_t, NativeTimeout*> native_timeouts_;
+
+  JSHttp* jshttp_;
 
   static v8::Persistent<v8::FunctionTemplate> entd_template_;
 

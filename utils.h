@@ -5,6 +5,7 @@
 #ifndef ENTD_UTILS_H_
 #define ENTD_UTILS_H_
 
+#include <list>
 #include <string>
 #include <v8.h>
 
@@ -24,6 +25,20 @@ const char* ToCString(const v8::String::Utf8Value& value);
 
 // Reads a file into a v8 string.
 v8::Handle<v8::String> ReadFile(const std::string& name);
+
+// Convert a V8 Value to a std::string
+std::string ValueAsUtf8String(v8::Handle<v8::Value> value);
+
+// Retrieve the named JS parameter from the V8 object
+//  and convert it to a std::string
+std::string GetPropertyAsString(v8::Handle<v8::Object> obj,
+                                const std::string& desc);
+
+typedef std::list<std::string> StringList;
+StringList GetPropertyAsStringList(v8::Handle<v8::Object> obj,
+                                   const std::string& desc);
+
+void ThrowV8Exception(const std::string& err);
 
 }  // namespace utils
 

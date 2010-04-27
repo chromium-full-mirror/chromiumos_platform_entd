@@ -54,6 +54,41 @@ v8::Handle<v8::String> ReadFile(const std::string& name) {
   return result;
 }
 
+std::string ValueAsUtf8String(v8::Handle<v8::Value> value) {
+  Local<String> s = value->ToString();
+  return std::string(*String::Utf8Value(s));
+}
+
+std::string GetPropertyAsString(v8::Handle<v8::Object> obj,
+                                const std::string& desc) {
+  std::string res;
+  Handle<String> jsdesc = String::New(desc.c_str());
+  if (obj->Has(jsdesc)) {
+    res = ValueAsUtf8String(obj->Get(jsdesc));
+  }
+  return res;
+}
+
+StringList GetPropertyAsStringList(v8::Handle<v8::Object> obj,
+                                   const std::string& desc) {
+  StringList result;
+  Handle<String> jsdesc = String::New(desc.c_str());
+  if (obj->Has(jsdesc)) {
+    Local<Array> jsarray = Local<Array>::Cast(obj->Get(jsdesc));
+    if (!jsarray->IsUndefined()) {
+      for (size_t i = 0; i < jsarray->Length(); i++) {
+        std::string s = ValueAsUtf8String(jsarray->Get(i));
+        result.push_back(s);
+      }
+    }
+  }
+  return result;
+}
+
+void ThrowV8Exception(const std::string& err) {
+  ThrowException(String::New(err.c_str()));
+}
+
 }  // namespace utils
 
 }  // namespace entd
