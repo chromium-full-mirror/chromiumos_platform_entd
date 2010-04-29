@@ -28,7 +28,20 @@ class Entd {
   Entd();
   virtual ~Entd();
 
-  virtual void SetPolicyFile(const std::string& filename);
+  void SetUtilityFile(const std::string& filename) {
+    LOG(INFO) << "Utility file set to: " << filename;
+    utility_filename_ = filename;
+  }
+
+  void SetManifestFile(const std::string& filename) {
+    LOG(INFO) << "Manifest file set to: " << filename;
+    manifest_filename_ = filename;
+  }
+
+  void SetPolicyFile(const std::string& filename) {
+    LOG(INFO) << "Policy file set to: " << filename;
+    policy_filename_ = filename;
+  }
 
   // Initialize the Entd object, call this first.
   virtual bool Initialize();
@@ -77,6 +90,11 @@ class Entd {
   virtual bool ClearNativeTimeout(uint32_t timeout_handle);
 
  private:
+  // Loads JSON from a file using the JSON.parse() function from the current
+  // context.
+  virtual bool LoadJson(const std::string& filename,
+                        v8::Handle<v8::Value>* result);
+
   // Executes a file within the current v8 context.
   virtual bool ExecuteFile(const std::string& filename,
                            v8::Handle<v8::Value>* result);
@@ -89,6 +107,8 @@ class Entd {
   // Print the current exception.
   virtual void ReportException(v8::TryCatch* try_catch);
 
+  std::string utility_filename_;
+  std::string manifest_filename_;
   std::string policy_filename_;
   uint32_t timeout_sequence_;
 

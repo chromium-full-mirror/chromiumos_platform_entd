@@ -10,17 +10,27 @@
 
 namespace switches {
 // Location of the policy file
+static const char *kManifest = "manifest";
 static const char *kPolicy = "policy";
+static const char *kUtility = "utility";
 }
 
 int main(int argc, char** argv) {
   LOG(INFO) << "Starting entd";
   CommandLine::Init(argc, argv);
   CommandLine* cl = CommandLine::ForCurrentProcess();
+  std::string manifest = cl->GetSwitchValueASCII(switches::kManifest);
   std::string policy = cl->GetSwitchValueASCII(switches::kPolicy);
+  std::string utility = cl->GetSwitchValueASCII(switches::kUtility);
 
   entd::Entd d;
   d.Initialize();
+
+  if (!utility.empty())
+    d.SetUtilityFile(utility);
+
+  if (!manifest.empty())
+    d.SetManifestFile(manifest);
 
   if (!policy.empty())
     d.SetPolicyFile(policy);

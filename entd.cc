@@ -13,6 +13,7 @@
 
 namespace entd {
 
+using std::string;
 using namespace v8;
 
 void dispatch_OnTimeout(int fd, short flags, void* arg);
@@ -234,11 +235,6 @@ Entd::~Entd() {
   context_.Dispose();
 }
 
-inline void Entd::SetPolicyFile(const std::string& filename) {
-  LOG(INFO) << "Policy file set to: " << filename;
-  policy_filename_ = filename;
-}
-
 Handle<FunctionTemplate> Entd::GetEntdTemplate() {
   HandleScope handle_scope;
 
@@ -285,9 +281,9 @@ bool Entd::Initialize() {
   HandleScope handle_scope;
 
   Handle<ObjectTemplate> global_template = ObjectTemplate::New();
-  global_template->Set(String::New("print"),
+  global_template->Set(String::NewSymbol("print"),
                        FunctionTemplate::New(dispatch_Print), ReadOnly);
-  global_template->Set(String::New("println"),
+  global_template->Set(String::NewSymbol("println"),
                        FunctionTemplate::New(dispatch_PrintLn), ReadOnly);
   context_ = Context::New(NULL, global_template);
 
@@ -295,7 +291,7 @@ bool Entd::Initialize() {
   Context::Scope context_scope(context_);
   Handle<Object> global = context_->Global();
   Local<Object> entd_object = Entd::MakeEntd();
-  global->Set(String::New("entd"), entd_object, ReadOnly);
+  global->Set(String::NewSymbol("entd"), entd_object, ReadOnly);
 
   return true;
 }
@@ -306,19 +302,64 @@ bool Entd::Run() {
   // Make sure we're running on our context
   Context::Scope context_scope(context_);
 
+  Handle<Value> value;
+
+  if (!utility_filename_.empty()) {
+    LOG(INFO) << "Executing utility file: " << utility_filename_;
+    if (!ExecuteFile(utility_filename_, &value)) {
+      LOG(ERROR) << "Error in utility file.";
+      return false;
+    }
+  }
+
+  Handle<Value> manifest;
+
+  if (manifest_filename_.empty()) {
+    LOG(WARNING) << "No manifest file.";
+    manifest = Null();
+  } else {
+    if (!LoadJson(manifest_filename_, &manifest)) {
+      LOG(ERROR) << "Error loading manifest file: " << manifest_filename_;
+      return false;
+    }
+  }
+
   if (policy_filename_.empty()) {
     LOG(ERROR) << "No policy file.";
     return false;
   }
 
-  Handle<Value> result;
-  if (!ExecuteFile(policy_filename_, &result)) {
+  if (!ExecuteFile(policy_filename_, &value)) {
     LOG(ERROR) << "Error in policy file.";
     return false;
   }
 
-  LOG(INFO) << "Policy result: " <<
-      utils::ToCString(String::Utf8Value(result));
+  LOG(INFO) << "Policy loaded, result: " <<
+      utils::ToCString(String::Utf8Value(value));
+
+  value = context_->Global()->Get(String::NewSymbol("entd"));
+  if (value.IsEmpty() || !value->IsObject()) {
+    LOG(ERROR) << "Global entd missing or not an object";
+    return false;
+  }
+
+  Handle<Object> entd = Handle<Object>::Cast(value);
+  value = entd->Get(String::NewSymbol("onLoad"));
+  if (!value.IsEmpty()) {
+    if (!value->IsFunction()) {
+      LOG(ERROR) << "entd.onLoad is not a function.";
+      return false;
+    }
+
+    Handle<Function> onload = Handle<Function>::Cast(value);
+
+    TryCatch try_catch;
+    value = onload->Call(entd, 1, &manifest);
+    if (value.IsEmpty()) {
+      ReportException(&try_catch);
+      return false;
+    }
+  }
 
   event_dispatch();
 
@@ -415,6 +456,46 @@ bool Entd::ClearNativeTimeout(uint32_t handle) {
     return true;
   }
   return false;
+}
+
+bool Entd::LoadJson(const string& filename, Handle<Value>* result) {
+  if (!result) {
+    LOG(ERROR) << "Null pointer passed for result";
+    return false;
+  }
+
+  Handle<String> source = utils::ReadFile(filename);
+  if (source.IsEmpty()) {
+    LOG(ERROR) << "Error reading json file: " << filename;
+    return false;
+  }
+
+  Handle<Value> value = context_->Global()->Get(String::NewSymbol("JSON"));
+  if (value.IsEmpty() || !value->IsObject()) {
+    LOG(ERROR) << "Global JSON property missing or not an object.";
+    return false;
+  }
+
+  Handle<Object> json = Handle<Object>::Cast(value);
+
+  value = json->Get(String::NewSymbol("parse"));
+  if (value.IsEmpty() || !value->IsFunction()) {
+    LOG(ERROR) << "JSON.parse missing or not a function.";
+    return false;
+  }
+
+  Handle<Function> parse = Handle<Function>::Cast(value);
+  value = source;
+
+  TryCatch try_catch;
+  *result = parse->Call(json, 1, &value);
+
+  if (result->IsEmpty()) {
+    ReportException(&try_catch);
+    return false;
+  }
+
+  return true;
 }
 
 bool Entd::ExecuteFile(const std::string& filename,
