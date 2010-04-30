@@ -26,7 +26,7 @@ def build():
   end_program = env.Program(
       '${BUILD_DIR}/entd',
       [os.path.join("${BUILD_DIR}", fn) for fn in
-       ("main.cc", "entd.cc", "utils.cc", "jshttp.cc")]
+       ("main.cc", "entd.cc", "utils.cc", "http.cc", "syslog.cc")]
       )
 
   env.Install('${SYSROOT}/usr/sbin/', end_program)

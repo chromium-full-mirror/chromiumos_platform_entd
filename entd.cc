@@ -9,7 +9,8 @@
 #include <stdio.h>
 #include <v8.h>
 #include "entd/utils.h"
-#include "entd/jshttp.h"
+#include "entd/http.h"
+#include "entd/syslog.h"
 
 namespace entd {
 
@@ -134,18 +135,6 @@ class NativeTimeout
 
 uint32_t NativeTimeout::s_handle_counter_ = 1;
 
-// Used to get a the raw Entd* associated with a JavaScript object, if there
-// is one.
-Entd* UnwrapEntd(Handle<Object> obj) {
-  Handle<FunctionTemplate> t = Entd::GetEntdTemplate();
-  if (!t->HasInstance(obj)) {
-    ThrowException(String::New("Not an Entd object"));
-    return NULL;
-  }
-
-  return reinterpret_cast<Entd*>(obj->GetPointerFromInternalField(0));
-};
-
 // Called by libevent when a timeout fires.
 void dispatch_OnTimeout(int fd, short flags, void* arg) {
   Timeout* timeout = reinterpret_cast<Timeout*>(arg);
@@ -156,7 +145,7 @@ void dispatch_OnTimeout(int fd, short flags, void* arg) {
 
 // Called by v8 for entd.setTimeout().
 Handle<Value> dispatch_SetTimeout(const Arguments& args) {
-  Entd* entd = UnwrapEntd(args.This());
+  Entd* entd = Entd::Unwrap(args.This());
   if (!entd)
     return Undefined();
 
@@ -175,7 +164,7 @@ Handle<Value> dispatch_SetTimeout(const Arguments& args) {
 
 // Called by v8 for entd.clearTimeout().
 Handle<Value> dispatch_ClearTimeout(const Arguments& args) {
-  Entd* entd = UnwrapEntd(args.This());
+  Entd* entd = Entd::Unwrap(args.This());
   if (!entd)
     return Undefined();
 
@@ -216,11 +205,9 @@ Handle<Value> dispatch_PrintLn(const Arguments& args) {
   return Undefined();
 }
 
-// Static storage for the template object.
-Persistent<FunctionTemplate> Entd::entd_template_;
-
 Entd::Entd()
-    : jshttp_(NULL) {
+    : jshttp_(NULL),  // allocate after we are constructed
+      jssyslog_(new Syslog()) {
 }
 
 
@@ -231,42 +218,16 @@ Entd::~Entd() {
     timeout->CancelEvent();
     delete timeout;
   }
-  delete jshttp_;
+  CleanupTemplate();
   context_.Dispose();
 }
 
-Handle<FunctionTemplate> Entd::GetEntdTemplate() {
-  HandleScope handle_scope;
-
-  if (!entd_template_.IsEmpty())
-    return entd_template_;
-
-  entd_template_ = Persistent<FunctionTemplate>::New(FunctionTemplate::New());
-  Handle<ObjectTemplate> entd_inst = entd_template_->InstanceTemplate();
-
-  // One internal field to store the Entd*.
-  entd_inst->SetInternalFieldCount(1);
-  entd_inst->Set(String::New("setTimeout"),
-                 FunctionTemplate::New(dispatch_SetTimeout), ReadOnly);
-  entd_inst->Set(String::New("clearTimeout"),
-                 FunctionTemplate::New(dispatch_ClearTimeout), ReadOnly);
-
-  return entd_template_;
-}
-
-Local<Object> Entd::MakeEntd() {
-  HandleScope handle_scope;
-
-  Handle<FunctionTemplate> function_t = Entd::GetEntdTemplate();
-  Handle<Object> result = function_t->GetFunction()->NewInstance();
-  result->SetPointerInInternalField(0, this);
-
-  jshttp_ = new JSHttp(this, NULL);
-  jshttp_->Initialize();
-
-  result->Set(String::New("http"), jshttp_->GetObject(), ReadOnly);
-
-  return handle_scope.Close(result);
+// Bind "setTimeout" and "clearTimeout" to the entd template object
+void Entd::SetTemplateBindings(Handle<ObjectTemplate> template_object) {
+  template_object->Set(String::New("setTimeout"),
+                       FunctionTemplate::New(dispatch_SetTimeout), ReadOnly);
+  template_object->Set(String::New("clearTimeout"),
+                       FunctionTemplate::New(dispatch_ClearTimeout), ReadOnly);
 }
 
 bool Entd::Initialize() {
@@ -290,8 +251,22 @@ bool Entd::Initialize() {
   // Switch to our context and instantiate the entd object.
   Context::Scope context_scope(context_);
   Handle<Object> global = context_->Global();
-  Local<Object> entd_object = Entd::MakeEntd();
-  global->Set(String::NewSymbol("entd"), entd_object, ReadOnly);
+
+  // Build the entd object
+  JSObjectWrapper<Entd>::Initialize();
+  Handle<Object> entd_object = obj();
+
+  // Build the http object
+  jshttp_.reset(new Http(this, NULL));
+  jshttp_->Initialize();
+  entd_object->Set(String::New("http"), jshttp_->obj(), ReadOnly);
+
+  // Build the syslog object
+  jssyslog_->Initialize();
+  entd_object->Set(String::New("syslog"), jssyslog_->obj(), ReadOnly);
+
+  // Bind entd to the global object
+  global->Set(String::New("entd"), entd_object, ReadOnly);
 
   return true;
 }

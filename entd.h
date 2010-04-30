@@ -11,17 +11,20 @@
 
 #include <base/basictypes.h>
 #include <base/logging.h>
+#include "base/scoped_ptr.h"
 #include <v8.h>
 
+#include "entd/js_object_wrapper.h"
 #include "entd/utils.h"
 
 namespace entd {
 
 class Timeout;
 class NativeTimeout;
-class JSHttp;
+class Http;
+class Syslog;
 
-class Entd {
+class Entd : public JSObjectWrapper<Entd> {
  public:
   typedef bool(* NativeTimeoutCallback)(void*);
 
@@ -43,14 +46,14 @@ class Entd {
     policy_filename_ = filename;
   }
 
+  static const char* GetClassName() { return "entd"; }
+
+  // Bind functions / properties to the V8 template object
+  static void SetTemplateBindings(
+      v8::Handle<v8::ObjectTemplate> template_object);
+
   // Initialize the Entd object, call this first.
   virtual bool Initialize();
-
-  // Return the singleton v8 function template for entd.
-  static v8::Handle<v8::FunctionTemplate> GetEntdTemplate();
-
-  // Return an instance of the v8 object for this entd instance.
-  v8::Local<v8::Object> MakeEntd();
 
   // Load the policy script and start processing events.
   virtual bool Run();
@@ -117,9 +120,8 @@ class Entd {
 
   std::map<uint32_t, NativeTimeout*> native_timeouts_;
 
-  JSHttp* jshttp_;
-
-  static v8::Persistent<v8::FunctionTemplate> entd_template_;
+  scoped_ptr<Http> jshttp_;
+  scoped_ptr<Syslog> jssyslog_;
 
   DISALLOW_COPY_AND_ASSIGN(Entd);
 };
