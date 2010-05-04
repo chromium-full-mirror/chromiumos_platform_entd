@@ -64,24 +64,37 @@ std::string ValueAsUtf8String(v8::Handle<v8::Value> value) {
 }
 
 std::string GetPropertyAsString(v8::Handle<v8::Object> obj,
-                                const std::string& desc) {
+                                const std::string& name) {
   std::string res;
-  Handle<String> jsdesc = String::New(desc.c_str());
-  if (obj->Has(jsdesc)) {
-    res = ValueAsUtf8String(obj->Get(jsdesc));
+  Handle<String> jsname = String::New(name.c_str());
+  if (obj->Has(jsname)) {
+    res = ValueAsUtf8String(obj->Get(jsname));
   }
   return res;
 }
 
+// "delim" only applies to object properties; it is ignored for Arrays
 StringList GetPropertyAsStringList(v8::Handle<v8::Object> obj,
-                                   const std::string& desc) {
+                                   const std::string& name,
+                                   const std::string& delim) {
   StringList result;
-  Handle<String> jsdesc = String::New(desc.c_str());
-  if (obj->Has(jsdesc)) {
-    Local<Array> jsarray = Local<Array>::Cast(obj->Get(jsdesc));
-    if (!jsarray->IsUndefined()) {
+  Handle<String> jsname = String::New(name.c_str());
+  if (obj->Has(jsname)) {
+    Local<Value> jsvalue = obj->Get(jsname);
+    if (jsvalue->IsArray()) {
+      Local<Array> jsarray = Local<Array>::Cast(obj->Get(jsname));
       for (size_t i = 0; i < jsarray->Length(); i++) {
         std::string s = ValueAsUtf8String(jsarray->Get(i));
+        result.push_back(s);
+      }
+    } else if (jsvalue->IsObject()) {
+      Local<Object> paramobj = Local<Object>::Cast(obj->Get(jsname));
+      Local<Array> props = paramobj->GetPropertyNames();
+      for (size_t i = 0; i < props->Length(); ++i) {
+        Handle<Value> propname = props->Get(i);
+        std::string name = ValueAsUtf8String(propname);
+        std::string value = ValueAsUtf8String(paramobj->Get(propname));
+        std::string s = name + delim + value;
         result.push_back(s);
       }
     }

@@ -1,6 +1,7 @@
 var url = "https://www.cia.gov";
-var params = new Array("name=me");
-var headers = new Array("foo: bar");
+var params = new Array("name=me","password=passwd");
+var headers = new Object;
+headers.foo="bar";
 
 var req = new entd.http.Request(url, params, headers);
 req.onComplete = function complete(response)

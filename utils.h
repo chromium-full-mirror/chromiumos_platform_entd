@@ -30,13 +30,20 @@ v8::Handle<v8::String> ReadFile(const std::string& name);
 std::string ValueAsUtf8String(v8::Handle<v8::Value> value);
 
 // Retrieve the named JS parameter from the V8 object
-//  and convert it to a std::string
+// and convert it to a std::string
 std::string GetPropertyAsString(v8::Handle<v8::Object> obj,
-                                const std::string& desc);
+                                const std::string& name);
 
+// Returns the named property "desc" in object "obj" as a StringList.
+// "desc" can be either:
+// * an Array, in which case each element is added to the result
+//   as its String representation
+// * an Object, in which case each property is added to the result
+//   as "property + delim + property value"
 typedef std::list<std::string> StringList;
 StringList GetPropertyAsStringList(v8::Handle<v8::Object> obj,
-                                   const std::string& desc);
+                                   const std::string& name,
+                                   const std::string& delim);
 
 void ThrowV8Exception(const std::string& err);
 

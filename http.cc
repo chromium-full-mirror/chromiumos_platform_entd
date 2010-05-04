@@ -58,8 +58,9 @@ class HttpRequest : public JSObjectWrapper<HttpRequest> {
   static Handle<Value> MakeHttpRequest(const Arguments& args);
 
   // Accessors
-  std::string GetString(const std::string& desc);
-  utils::StringList GetStringList(const std::string& desc);
+  std::string GetString(const std::string& name);
+  utils::StringList GetStringList(const std::string& name,
+                                  const std::string& delim);
 
   // Interface for HTTP (HttpMessengerInterface class)
   void SetUrl(const std::string& url) { url_ = url; }
@@ -86,8 +87,8 @@ void HttpRequest::SetTemplateBindings(Handle<ObjectTemplate> template_object){
   // Add named properties to the template object so that they always
   //  exist, even if they are not specified explicitly in a Request
   template_object->Set(String::NewSymbol("url"), String::New(""));
-  template_object->Set(String::NewSymbol("params"), Array::New(0));
-  template_object->Set(String::NewSymbol("headers"), Array::New(0));
+  template_object->Set(String::NewSymbol("params"), Object::New());
+  template_object->Set(String::NewSymbol("headers"), Object::New());
 }
 
 // Append received bytes to std::vector<char> buffer_
@@ -117,14 +118,15 @@ void HttpRequest::AppendHeader(const std::string& header) {
 
 // Retrieve the named JS property from the associated V8 object
 //  and convert it to a std::string
-std::string HttpRequest::GetString(const std::string& desc) {
-  return utils::GetPropertyAsString(obj(), desc);
+std::string HttpRequest::GetString(const std::string& name) {
+  return utils::GetPropertyAsString(obj(), name);
 }
 
 // Retrieve the named JS property from the associated V8 object
 //  and convert it to a StringList
-utils::StringList HttpRequest::GetStringList(const std::string& desc) {
-  return utils::GetPropertyAsStringList(obj(), desc);
+utils::StringList HttpRequest::GetStringList(const std::string& name,
+                                             const std::string& delim) {
+  return utils::GetPropertyAsStringList(obj(), name, delim);
 }
 
 // Set the following JS properties and call 'onComplete' if defined
@@ -183,11 +185,11 @@ Handle<Value> HttpRequest::MakeHttpRequest(const Arguments& args) {
   Handle<Value> url = args[0];
   if (!url->IsUndefined() && url->IsString())
     obj->Set(String::NewSymbol("url"), url);
-  Handle<Array> params = Handle<Array>::Cast(args[1]);
-  if (!params->IsUndefined() && params->Length() > 0)
+  Handle<Value> params = args[1];
+  if (!params->IsUndefined() && (params->IsObject() || params->IsArray()))
     obj->Set(String::NewSymbol("params"), params);
-  Handle<Array> headers = Handle<Array>::Cast(args[2]);
-  if (!headers->IsUndefined() && headers->Length() > 0)
+  Handle<Value> headers = args[2];
+  if (!headers->IsUndefined() && (headers->IsObject() || headers->IsArray()))
     obj->Set(String::NewSymbol("headers"), headers);
 
   // Return the V8 object so that JS can bind the result
@@ -301,7 +303,7 @@ bool HttpCurlEasy::CurlSetupRequest(HttpRequest* request, CURL* handle) {
     return false;
   }
   // Set headers defined by the request object
-  utils::StringList headers = request->GetStringList("headers");
+  utils::StringList headers = request->GetStringList("headers", ": ");
   if (headers.size() > 0) {
     struct curl_slist *curl_headers = NULL;
     for (utils::StringList::iterator iter = headers.begin();
@@ -365,7 +367,7 @@ bool HttpCurlEasy::HttpGet(HttpRequest* request) {
     return false;
   //  Set parameter string
   std::string url = request->GetString("url");
-  utils::StringList params = request->GetStringList("params");
+  utils::StringList params = request->GetStringList("params", "=");
   std::string paramstr;
   if (url.find('?') == std::string::npos)
     paramstr = "?";
@@ -396,7 +398,7 @@ bool HttpCurlEasy::HttpPost(HttpRequest* request) {
   if (!handle)
     return false;
   //  Set form data
-  utils::StringList params = request->GetStringList("params");
+  utils::StringList params = request->GetStringList("params", "=");
   struct curl_httppost *formpost=NULL;
   struct curl_httppost *lastptr=NULL;
   for (utils::StringList::iterator iter = params.begin();
