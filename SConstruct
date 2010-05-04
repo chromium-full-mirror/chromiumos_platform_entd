@@ -23,6 +23,8 @@ def build():
     LINKFLAGS=['-L${V8_LIB}'],
    )
 
+  env.ParseConfig('pkg-config --cflags --libs libcurl')
+
   end_program = env.Program(
       '${BUILD_DIR}/entd',
       [os.path.join("${BUILD_DIR}", fn) for fn in
@@ -49,7 +51,6 @@ def get_variables():
       ('PREFIX', 'Installation prefix, relative to SYSROOT', '${SYSROOT}'),
       ('CHOST', 'Name of the toolchain, used to compute default ' +
        'toolchain executable names', ''),
-      ('TC_PREFIX', 'Prefix used for toolchain commands', ''),
       ('CC', 'ANSI C Compiler', '/usr/bin/${TC_PREFIX}gcc'),
       ('CXX', 'C++ Compiler', '/usr/bin/${TC_PREFIX}g++'),
       ('AR', 'Archiver', '/usr/bin/${TC_PREFIX}ar'),
