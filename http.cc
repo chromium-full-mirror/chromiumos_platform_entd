@@ -71,11 +71,6 @@ class HttpRequest : public JSObjectWrapper<HttpRequest> {
   void CallError(const std::string& errdesc);
 
  private:
-  // Call the V8 method associated with the property 'cbname' 
-  //  argc and arcv specify arguments to the V8 function.
-  bool CallV8Function(const std::string& cbname,
-                      int argc, Handle<Value> argv[]);
-
   // Member Variables
   std::string url_;  // actual url the request was sent to, including params
   std::vector<char> buffer_;  // input buffer to hold request results
@@ -133,10 +128,10 @@ utils::StringList HttpRequest::GetStringList(const std::string& desc) {
 }
 
 // Set the following JS properties and call 'onComplete' if defined
-//  response.url= the actual url the request was sent to (including parameters)
-//  response.code= the HTTP code (e.g. 200) as an Integer
-//  response.content= the body of request as a single String
-//  response.headers= the headers as an Array of Strings
+// response.url= the actual url the request was sent to (including parameters)
+// response.code= the HTTP code (e.g. 200) as an Integer
+// response.content= the body of request as a single String
+// response.headers= the headers as an Array of Strings
 void HttpRequest::CallComplete(int http_code) {
   Local<Object> response = Object::New();
   response->Set(String::NewSymbol("url"),
@@ -154,29 +149,18 @@ void HttpRequest::CallComplete(int http_code) {
   }
   response->Set(String::NewSymbol("headers"), jsheaders);
   Local<Value> arg = response;
-  CallV8Function("onComplete", 1, &arg);
+  utils::CallV8Function(obj(), "onComplete", 1, &arg);
 }
 
+// Call 'onTimeout' if it exists
 void HttpRequest::CallTimeout() {
-  CallV8Function("onTimeout", 0, NULL);
+  utils::CallV8Function(obj(), "onTimeout", 0, NULL);
 }
 
+// Call 'onError' if it exists with 'errdesc' as an argument
 void HttpRequest::CallError(const std::string& errdesc) {
   Local<Value> errobj = String::New(errdesc.c_str());
-  CallV8Function("onError", 1, &errobj);
-}
-
-bool HttpRequest::CallV8Function(const std::string& cb_name,
-                                   int argc, Handle<Value> argv[]) {
-  Handle<String> cb_str = String::NewSymbol(cb_name.c_str());
-  if (obj()->Has(cb_str)) {
-    Handle<Value> cb = obj()->GetRealNamedProperty(cb_str);
-    if (!cb.IsEmpty() && cb->IsFunction()) {
-      Handle<Function>::Cast(cb)->Call(obj(), argc, argv);
-      return true;
-    }
-  }
-  return false;
+  utils::CallV8Function(obj(), "onError", 1, &errobj);
 }
 
 // === HttpRequest Static Functions ===
@@ -324,8 +308,10 @@ bool HttpCurlEasy::CurlSetupRequest(HttpRequest* request, CURL* handle) {
          iter != headers.end();
          ++iter) {
       std::string h = *iter;
-      if (h.find(':') == std::string::npos)
+      if (h.find(':') == std::string::npos) {
         utils::ThrowV8Exception(std::string("Badly formatted header: ") + h);
+        return false;
+      }
       curl_headers = curl_slist_append(curl_headers, h.c_str());
     }
     CURLcode code = curl_easy_setopt(handle, CURLOPT_HTTPHEADER, curl_headers);
@@ -375,6 +361,8 @@ bool HttpCurlEasy::HttpGet(HttpRequest* request) {
   if (!request)
     return false;
   CURL* handle = CurlInit();
+  if (!handle)
+    return false;
   //  Set parameter string
   std::string url = request->GetString("url");
   utils::StringList params = request->GetStringList("params");
@@ -405,6 +393,8 @@ bool HttpCurlEasy::HttpPost(HttpRequest* request) {
   if (!request)
     return false;
   CURL* handle = CurlInit();
+  if (!handle)
+    return false;
   //  Set form data
   utils::StringList params = request->GetStringList("params");
   struct curl_httppost *formpost=NULL;

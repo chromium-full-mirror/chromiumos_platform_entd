@@ -21,4 +21,8 @@ req.onError = function error(errcode)
   println("HTTP ERROR: " + errcode);
 }
 
-entd.http.GET(req);
+entd.onLoad =
+function onLoad(manifest)
+{
+  entd.http.GET(req);
+}

@@ -40,6 +40,17 @@ StringList GetPropertyAsStringList(v8::Handle<v8::Object> obj,
 
 void ThrowV8Exception(const std::string& err);
 
+// Prints the exception described in 'try_catch'
+void ReportV8Exception(v8::TryCatch* try_catch);
+
+// Call the V8 method in 'obj' associated with the property 'cb_name'
+// 'argc' and 'arcv' specify arguments to the V8 method.
+// Returns the result of the function if successfully called,
+// or an empty handle if the function is not called.
+v8::Handle<v8::Value> CallV8Function(
+    v8::Handle<v8::Object> obj, const std::string& cb_name,
+    int argc, v8::Handle<v8::Value> argv[]);
+
 }  // namespace utils
 
 }  // namespace entd

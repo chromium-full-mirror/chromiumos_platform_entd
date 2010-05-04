@@ -107,9 +107,6 @@ class Entd : public JSObjectWrapper<Entd> {
                              const std::string& filename,
                              v8::Handle<v8::Value>* result);
 
-  // Print the current exception.
-  virtual void ReportException(v8::TryCatch* try_catch);
-
   std::string utility_filename_;
   std::string manifest_filename_;
   std::string policy_filename_;

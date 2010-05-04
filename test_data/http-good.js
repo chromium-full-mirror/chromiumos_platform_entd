@@ -28,4 +28,3 @@ function onLoad(manifest)
   entd.http.POST(req);
   // entd.syslog.info("REQ: " + JSON.stringify(req));
 }
-true;

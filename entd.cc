@@ -309,8 +309,7 @@ bool Entd::Run() {
     return false;
   }
 
-  LOG(INFO) << "Policy loaded, result: " <<
-      utils::ToCString(String::Utf8Value(value));
+  LOG(INFO) << "Policy loaded.";
 
   value = context_->Global()->Get(String::NewSymbol("entd"));
   if (value.IsEmpty() || !value->IsObject()) {
@@ -318,22 +317,16 @@ bool Entd::Run() {
     return false;
   }
 
+  TryCatch try_catch;
   Handle<Object> entd = Handle<Object>::Cast(value);
-  value = entd->Get(String::NewSymbol("onLoad"));
-  if (!value.IsEmpty()) {
-    if (!value->IsFunction()) {
-      LOG(ERROR) << "entd.onLoad is not a function.";
-      return false;
-    }
-
-    Handle<Function> onload = Handle<Function>::Cast(value);
-
-    TryCatch try_catch;
-    value = onload->Call(entd, 1, &manifest);
-    if (value.IsEmpty()) {
-      ReportException(&try_catch);
-      return false;
-    }
+  value = utils::CallV8Function(entd, "onLoad", 1, &manifest);
+  if (try_catch.HasCaught()) {
+    // Failed due to V8 exception
+    utils::ReportV8Exception(&try_catch);
+    return false;
+  } else if (value.IsEmpty()) {
+    // Failed for other reasons
+    return false;
   }
 
   event_dispatch();
@@ -452,23 +445,19 @@ bool Entd::LoadJson(const string& filename, Handle<Value>* result) {
   }
 
   Handle<Object> json = Handle<Object>::Cast(value);
-
-  value = json->Get(String::NewSymbol("parse"));
-  if (value.IsEmpty() || !value->IsFunction()) {
-    LOG(ERROR) << "JSON.parse missing or not a function.";
-    return false;
-  }
-
-  Handle<Function> parse = Handle<Function>::Cast(value);
   value = source;
 
   TryCatch try_catch;
-  *result = parse->Call(json, 1, &value);
-
-  if (result->IsEmpty()) {
-    ReportException(&try_catch);
+  Handle<Value> parse_result = utils::CallV8Function(json, "parse", 1, &value);
+  if (try_catch.HasCaught()) {
+    // Failed due to V8 exception
+    utils::ReportV8Exception(&try_catch);
+    return false;
+  } else if (parse_result.IsEmpty()) {
+    // Failed for other reasons
     return false;
   }
+  *result = parse_result;
 
   return true;
 }
@@ -495,56 +484,17 @@ bool Entd::ExecuteString(const Handle<String>& source,
       Script::Compile(source, String::New(filename.c_str()));
 
   if (script.IsEmpty()) {
-    ReportException(&try_catch);
+    utils::ReportV8Exception(&try_catch);
     return false;
   }
 
   *result = script->Run();
   if (!result || result->IsEmpty()) {
-    ReportException(&try_catch);
+    utils::ReportV8Exception(&try_catch);
     return false;
   }
 
   return true;
-}
-
-void Entd::ReportException(TryCatch* try_catch) {
-  HandleScope handle_scope;
-  String::Utf8Value exception(try_catch->Exception());
-  const char* exception_string = utils::ToCString(exception);
-  Handle<Message> message = try_catch->Message();
-
-  if (message.IsEmpty()) {
-    // V8 didn't provide any extra information about this error; just
-    // print the exception.
-    std::cerr << exception_string << '\n';
-
-  } else {
-    // Print (filename):(line number): (message).
-    String::Utf8Value filename(message->GetScriptResourceName());
-    const char* filename_string = utils::ToCString(filename);
-    int linenum = message->GetLineNumber();
-    std::cerr << filename_string << ':' << linenum << ": " <<
-        exception_string << '\n';
-
-    // Print line of source code.
-    String::Utf8Value sourceline(message->GetSourceLine());
-    const char* sourceline_string = utils::ToCString(sourceline);
-    std::cerr << sourceline_string << '\n';
-
-    // Print wavy underline (GetUnderline is deprecated).
-    int start = message->GetStartColumn();
-    for (int i = 0; i < start; i++) {
-      std::cerr << ' ';
-    }
-
-    int end = message->GetEndColumn();
-    for (int i = start; i < end; i++) {
-      std::cerr << '^';
-    }
-
-    std::cerr << '\n';
-  }
 }
 
 }  // namespace entd
