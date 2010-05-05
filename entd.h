@@ -19,10 +19,11 @@
 
 namespace entd {
 
-class Timeout;
-class NativeTimeout;
+class CallbackServer;
 class Http;
+class NativeTimeout;
 class Syslog;
+class Timeout;
 
 class Entd : public JSObjectWrapper<Entd> {
  public:
@@ -97,11 +98,20 @@ class Entd : public JSObjectWrapper<Entd> {
   // Returns false if the timeout doesn't exist
   virtual bool ClearNativeTimeout(uint32_t timeout_handle);
 
- private:
   // Loads JSON from a file using the JSON.parse() function from the current
   // context.
-  virtual bool LoadJson(const std::string& filename,
-                        v8::Handle<v8::Value>* result);
+  virtual bool JsonParseFromFile(const std::string& filename,
+                                 v8::Handle<v8::Value>* result);
+
+  // Loads JSON from a file using the JSON.parse() function from the current
+  // context.
+  virtual bool JsonParse(v8::Handle<v8::String> source,
+                         v8::Handle<v8::Value>* result);
+
+  // Turn a value into a JSON string using the JSON.stringify() function from
+  // the current context.
+  virtual bool JsonStringify(v8::Handle<v8::Value> value,
+                             v8::Handle<v8::Value>* result);
 
   // Executes a file within the current v8 context.
   virtual bool ExecuteFile(const std::string& filename,
@@ -112,19 +122,24 @@ class Entd : public JSObjectWrapper<Entd> {
                              const std::string& filename,
                              v8::Handle<v8::Value>* result);
 
+ private:
+  // Invoke some method on the global JSON object.
+  bool CallJson(std::string method_name, v8::Handle<v8::Value> arg,
+                v8::Handle<v8::Value>* result);
+
   std::string utility_filename_;
   std::string manifest_filename_;
   std::string policy_filename_;
   std::string username_;
+
   uint32_t timeout_sequence_;
-
   std::vector<Timeout*> timeout_list_;
-  v8::Persistent<v8::Context> context_;
-
   std::map<uint32_t, NativeTimeout*> native_timeouts_;
 
   scoped_ptr<Http> jshttp_;
   scoped_ptr<Syslog> jssyslog_;
+  scoped_ptr<CallbackServer> callback_server_;
+  v8::Persistent<v8::Context> context_;
 
   DISALLOW_COPY_AND_ASSIGN(Entd);
 };

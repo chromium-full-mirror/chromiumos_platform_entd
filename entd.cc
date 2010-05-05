@@ -8,6 +8,8 @@
 #include <iostream>
 #include <stdio.h>
 #include <v8.h>
+
+#include "entd/callback_server.h"
 #include "entd/utils.h"
 #include "entd/http.h"
 #include "entd/syslog.h"
@@ -206,8 +208,9 @@ Handle<Value> dispatch_PrintLn(const Arguments& args) {
 }
 
 Entd::Entd()
-    : jshttp_(NULL),  // allocate after we are constructed
-      jssyslog_(new Syslog()) {
+    : jshttp_(NULL),  // Allocated after we are constructed.
+      jssyslog_(new Syslog()),
+      callback_server_(NULL) {
 }
 
 
@@ -222,7 +225,7 @@ Entd::~Entd() {
   context_.Dispose();
 }
 
-// Bind "setTimeout" and "clearTimeout" to the entd template object
+// Bind "setTimeout" and "clearTimeout" to the entd template object.
 void Entd::SetTemplateBindings(Handle<ObjectTemplate> template_object) {
   template_object->Set(String::New("setTimeout"),
                        FunctionTemplate::New(dispatch_SetTimeout), ReadOnly);
@@ -252,20 +255,26 @@ bool Entd::Initialize() {
   Context::Scope context_scope(context_);
   Handle<Object> global = context_->Global();
 
-  // Build the entd object
+  // Build the entd object.
   JSObjectWrapper<Entd>::Initialize();
   Handle<Object> entd_object = obj();
 
-  // Build the http object
+  // Build the http object.
   jshttp_.reset(new Http(this, NULL));
   jshttp_->Initialize();
-  entd_object->Set(String::New("http"), jshttp_->obj(), ReadOnly);
+  entd_object->Set(String::NewSymbol("http"), jshttp_->obj(), ReadOnly);
 
-  // Build the syslog object
+  // Build the syslog object.
   jssyslog_->Initialize();
-  entd_object->Set(String::New("syslog"), jssyslog_->obj(), ReadOnly);
+  entd_object->Set(String::NewSymbol("syslog"), jssyslog_->obj(), ReadOnly);
 
-  // Bind entd to the global object
+  // Build the callbackServer object.
+  callback_server_.reset(new CallbackServer(this));
+  callback_server_->Initialize();
+  entd_object->Set(String::NewSymbol("callbackServer"), callback_server_->obj(),
+                   ReadOnly);
+
+  // Bind entd to the global object.
   global->Set(String::New("entd"), entd_object, ReadOnly);
 
   return true;
@@ -293,7 +302,7 @@ bool Entd::Run() {
     LOG(WARNING) << "No manifest file.";
     manifest = Null();
   } else {
-    if (!LoadJson(manifest_filename_, &manifest)) {
+    if (!JsonParseFromFile(manifest_filename_, &manifest)) {
       LOG(ERROR) << "Error loading manifest file: " << manifest_filename_;
       return false;
     }
@@ -317,20 +326,23 @@ bool Entd::Run() {
     return false;
   }
 
-  TryCatch try_catch;
   Handle<Object> entd = Handle<Object>::Cast(value);
   entd->Set(String::NewSymbol("username"), String::New(username_.c_str()));
-  value = utils::CallV8Function(entd, "onLoad", 1, &manifest);
-  if (try_catch.HasCaught()) {
-    // Failed due to V8 exception
-    utils::ReportV8Exception(&try_catch);
-    return false;
-  } else if (value.IsEmpty()) {
-    // Failed for other reasons
-    return false;
+
+  if (entd->Has(String::NewSymbol("onLoad"))) {
+    TryCatch try_catch;
+    value = utils::CallV8Function(entd, "onLoad", 1, &manifest);
+    if (try_catch.HasCaught()) {
+      // Failed due to V8 exception
+      utils::ReportV8Exception(&try_catch);
+      return false;
+    } else if (value.IsEmpty()) {
+      // Failed for other reasons
+      return false;
+    }
   }
 
-  event_dispatch();
+  event_loop(0);
 
   return true;
 }
@@ -427,7 +439,7 @@ bool Entd::ClearNativeTimeout(uint32_t handle) {
   return false;
 }
 
-bool Entd::LoadJson(const string& filename, Handle<Value>* result) {
+bool Entd::JsonParseFromFile(const string& filename, Handle<Value>* result) {
   if (!result) {
     LOG(ERROR) << "Null pointer passed for result";
     return false;
@@ -439,6 +451,24 @@ bool Entd::LoadJson(const string& filename, Handle<Value>* result) {
     return false;
   }
 
+  return JsonParse(source, result);
+}
+
+bool Entd::JsonParse(Handle<String> source, Handle<Value>* result) {
+  return CallJson("parse", source, result);
+}
+
+bool Entd::JsonStringify(Handle<Value> source, Handle<Value>* result) {
+  return CallJson("stringify", source, result);
+}
+
+bool Entd::CallJson(string method_name, Handle<Value> arg,
+                    Handle<Value>* result) {
+  if (!result) {
+    LOG(ERROR) << "Null pointer passed for result";
+    return false;
+  }
+
   Handle<Value> value = context_->Global()->Get(String::NewSymbol("JSON"));
   if (value.IsEmpty() || !value->IsObject()) {
     LOG(ERROR) << "Global JSON property missing or not an object.";
@@ -446,19 +476,28 @@ bool Entd::LoadJson(const string& filename, Handle<Value>* result) {
   }
 
   Handle<Object> json = Handle<Object>::Cast(value);
-  value = source;
+
+  value = json->Get(String::NewSymbol(method_name.c_str()));
+  if (value.IsEmpty() || !value->IsFunction()) {
+    LOG(ERROR) << "JSON method missing or not a function: " << method_name;
+    return false;
+  }
+
+  Handle<Function> fun = Handle<Function>::Cast(value);
 
   TryCatch try_catch;
-  Handle<Value> parse_result = utils::CallV8Function(json, "parse", 1, &value);
+  Handle<Value> call_result = utils::CallV8Function(json, method_name, 1,
+                                                    &arg);
   if (try_catch.HasCaught()) {
     // Failed due to V8 exception
     utils::ReportV8Exception(&try_catch);
     return false;
-  } else if (parse_result.IsEmpty()) {
+  } else if (call_result.IsEmpty()) {
     // Failed for other reasons
     return false;
   }
-  *result = parse_result;
+
+  *result = call_result;
 
   return true;
 }
