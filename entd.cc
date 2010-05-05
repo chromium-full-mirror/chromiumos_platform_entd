@@ -17,7 +17,6 @@
 namespace entd {
 
 using std::string;
-using namespace v8;
 
 void dispatch_OnTimeout(int fd, short flags, void* arg);
 
@@ -33,10 +32,10 @@ class Timeout {
     delete event_;
   }
 
-  virtual bool Initialize(Entd* entd, Handle<Value> v8_value,
+  virtual bool Initialize(Entd* entd, v8::Handle<v8::Value> v8_value,
                           uint32_t interval) {
     entd_ = entd;
-    v8_value_ = Persistent<Value>::New(v8_value);
+    v8_value_ = v8::Persistent<v8::Value>::New(v8_value);
 
     // Least significant half (on 32bit x86 :P) of the address of the timeout
     // data, shifted left 16 bytes and or'd with the timeout sequence
@@ -56,8 +55,8 @@ class Timeout {
     return handle_;
   }
 
-  virtual Local<Value> GetValue() const {
-    return Local<Value>::New(v8_value_);
+  virtual v8::Local<v8::Value> GetValue() const {
+    return v8::Local<v8::Value>::New(v8_value_);
   }
 
   virtual Entd* GetEntd() const {
@@ -77,7 +76,7 @@ class Timeout {
   // Integer handle used to identify this timeout to JavaScript.
   uint32_t handle_;
   // JS value to execute when the timeout fires.
-  Persistent<Value> v8_value_;
+  v8::Persistent<v8::Value> v8_value_;
   // libevent structure for this timeout event.
   struct event* event_;
 
@@ -146,65 +145,66 @@ void dispatch_OnTimeout(int fd, short flags, void* arg) {
 }
 
 // Called by v8 for entd.setTimeout().
-Handle<Value> dispatch_SetTimeout(const Arguments& args) {
+v8::Handle<v8::Value> dispatch_SetTimeout(const v8::Arguments& args) {
   Entd* entd = Entd::Unwrap(args.This());
   if (!entd)
-    return Undefined();
+    return v8::Undefined();
 
   if (args.Length() < 2) {
-    ThrowException(String::New("Not enough parameters"));
-    return Undefined();
+    ThrowException(v8::String::New("Not enough parameters"));
+    return v8::Undefined();
   }
 
   if (!(args[0]->IsString() || args[0]->IsFunction())) {
-    ThrowException(String::New("First argument must be string or function"));
-    return Undefined();
+    ThrowException(v8::String::New(
+        "First argument must be string or function"));
+    return v8::Undefined();
   }
 
-  return Uint32::New(entd->SetTimeout(args[0], args[1]->Uint32Value()));
+  return v8::Uint32::New(entd->SetTimeout(args[0], args[1]->Uint32Value()));
 }
 
 // Called by v8 for entd.clearTimeout().
-Handle<Value> dispatch_ClearTimeout(const Arguments& args) {
+v8::Handle<v8::Value> dispatch_ClearTimeout(const v8::Arguments& args) {
   Entd* entd = Entd::Unwrap(args.This());
   if (!entd)
-    return Undefined();
+    return v8::Undefined();
 
   if (args.Length() < 1) {
-    ThrowException(String::New("Not enough parameters"));
-    return Undefined();
+    ThrowException(v8::String::New("Not enough parameters"));
+    return v8::Undefined();
   }
 
   Timeout* timeout = entd->ClearTimeout(args[0]->Uint32Value());
   if (!timeout)
-    return False();
+    return v8::False();
 
   delete timeout;
-  return True();
+  return v8::True();
 }
 
 // Called by v8 for the global object's print() method.
-Handle<Value> dispatch_Print(const Arguments& args) {
+v8::Handle<v8::Value> dispatch_Print(const v8::Arguments& args) {
   for (int i = 0; i < args.Length(); ++i) {
-    Handle<Value> arg = args[i];
-    String::Utf8Value value(arg);
+    v8::Handle<v8::Value> arg = args[i];
+    v8::String::Utf8Value value(arg);
     std::cout << *value;
   }
 
   std::cout.flush();
-  return Undefined();
+  return v8::Undefined();
 }
 
 // Called by v8 for the global object's print() method.
-Handle<Value> dispatch_PrintLn(const Arguments& args) {
+v8::Handle<v8::Value> dispatch_PrintLn(const v8::Arguments& args) {
   for (int i = 0; i < args.Length(); ++i) {
-    Handle<Value> arg = args[i];
-    String::Utf8Value value(arg);
+    v8::Handle<v8::Value> arg = args[i];
+    v8::String::Utf8Value value(arg);
     std::cout << *value;
   }
   std::cout << "\n";
   std::cout.flush();
-  return Undefined();
+  return v8::Undefined();
 }
 
 Entd::Entd()
@@ -226,11 +226,13 @@ Entd::~Entd() {
 }
 
 // Bind "setTimeout" and "clearTimeout" to the entd template object.
-void Entd::SetTemplateBindings(Handle<ObjectTemplate> template_object) {
-  template_object->Set(String::New("setTimeout"),
-                       FunctionTemplate::New(dispatch_SetTimeout), ReadOnly);
-  template_object->Set(String::New("clearTimeout"),
-                       FunctionTemplate::New(dispatch_ClearTimeout), ReadOnly);
+void Entd::SetTemplateBindings(v8::Handle<v8::ObjectTemplate> template_object) {
+  template_object->Set(v8::String::New("setTimeout"),
+                       v8::FunctionTemplate::New(dispatch_SetTimeout),
+                       v8::ReadOnly);
+  template_object->Set(v8::String::New("clearTimeout"),
+                       v8::FunctionTemplate::New(dispatch_ClearTimeout),
+                       v8::ReadOnly);
 }
 
 bool Entd::Initialize() {
@@ -242,51 +244,55 @@ bool Entd::Initialize() {
   event_init();
   LOG(INFO) << "Initialized libevent " << event_get_version();
 
-  HandleScope handle_scope;
+  v8::HandleScope handle_scope;
 
-  Handle<ObjectTemplate> global_template = ObjectTemplate::New();
-  global_template->Set(String::NewSymbol("print"),
-                       FunctionTemplate::New(dispatch_Print), ReadOnly);
-  global_template->Set(String::NewSymbol("println"),
-                       FunctionTemplate::New(dispatch_PrintLn), ReadOnly);
-  context_ = Context::New(NULL, global_template);
+  v8::Handle<v8::ObjectTemplate> global_template = v8::ObjectTemplate::New();
+  global_template->Set(v8::String::NewSymbol("print"),
+                       v8::FunctionTemplate::New(dispatch_Print),
+                       v8::ReadOnly);
+  global_template->Set(v8::String::NewSymbol("println"),
+                       v8::FunctionTemplate::New(dispatch_PrintLn),
+                       v8::ReadOnly);
+  context_ = v8::Context::New(NULL, global_template);
 
   // Switch to our context and instantiate the entd object.
-  Context::Scope context_scope(context_);
-  Handle<Object> global = context_->Global();
+  v8::Context::Scope context_scope(context_);
+  v8::Handle<v8::Object> global = context_->Global();
 
   // Build the entd object.
   JSObjectWrapper<Entd>::Initialize();
-  Handle<Object> entd_object = obj();
+  v8::Handle<v8::Object> entd_object = obj();
 
   // Build the http object.
   jshttp_.reset(new Http(this, NULL));
   jshttp_->Initialize();
-  entd_object->Set(String::NewSymbol("http"), jshttp_->obj(), ReadOnly);
+  entd_object->Set(v8::String::NewSymbol("http"),
+                   jshttp_->obj(), v8::ReadOnly);
 
   // Build the syslog object.
   jssyslog_->Initialize();
-  entd_object->Set(String::NewSymbol("syslog"), jssyslog_->obj(), ReadOnly);
+  entd_object->Set(v8::String::NewSymbol("syslog"),
+                   jssyslog_->obj(), v8::ReadOnly);
 
   // Build the callbackServer object.
   callback_server_.reset(new CallbackServer(this));
   callback_server_->Initialize();
-  entd_object->Set(String::NewSymbol("callbackServer"), callback_server_->obj(),
-                   ReadOnly);
+  entd_object->Set(v8::String::NewSymbol("callbackServer"),
+                   callback_server_->obj(), v8::ReadOnly);
 
   // Bind entd to the global object.
-  global->Set(String::New("entd"), entd_object, ReadOnly);
+  global->Set(v8::String::New("entd"), entd_object, v8::ReadOnly);
 
   return true;
 }
 
 bool Entd::Run() {
-  HandleScope handle_scope;
+  v8::HandleScope handle_scope;
 
   // Make sure we're running on our context
-  Context::Scope context_scope(context_);
+  v8::Context::Scope context_scope(context_);
 
-  Handle<Value> value;
+  v8::Handle<v8::Value> value;
 
   if (!utility_filename_.empty()) {
     LOG(INFO) << "Executing utility file: " << utility_filename_;
@@ -296,11 +302,11 @@ bool Entd::Run() {
     }
   }
 
-  Handle<Value> manifest;
+  v8::Handle<v8::Value> manifest;
 
   if (manifest_filename_.empty()) {
     LOG(WARNING) << "No manifest file.";
-    manifest = Null();
+    manifest = v8::Null();
   } else {
     if (!JsonParseFromFile(manifest_filename_, &manifest)) {
       LOG(ERROR) << "Error loading manifest file: " << manifest_filename_;
@@ -320,17 +326,18 @@ bool Entd::Run() {
 
   LOG(INFO) << "Policy loaded.";
 
-  value = context_->Global()->Get(String::NewSymbol("entd"));
+  value = context_->Global()->Get(v8::String::NewSymbol("entd"));
   if (value.IsEmpty() || !value->IsObject()) {
     LOG(ERROR) << "Global entd missing or not an object";
     return false;
   }
 
-  Handle<Object> entd = Handle<Object>::Cast(value);
-  entd->Set(String::NewSymbol("username"), String::New(username_.c_str()));
+  v8::Handle<v8::Object> entd = v8::Handle<v8::Object>::Cast(value);
+  entd->Set(v8::String::NewSymbol("username"),
+            v8::String::New(username_.c_str()));
 
-  if (entd->Has(String::NewSymbol("onLoad"))) {
-    TryCatch try_catch;
+  if (entd->Has(v8::String::NewSymbol("onLoad"))) {
+    v8::TryCatch try_catch;
     value = utils::CallV8Function(entd, "onLoad", 1, &manifest);
     if (try_catch.HasCaught()) {
       // Failed due to V8 exception
@@ -351,7 +358,7 @@ void Entd::Stop() {
   event_loopbreak();
 }
 
-uint32_t Entd::SetTimeout(Handle<Value> value, uint32_t interval) {
+uint32_t Entd::SetTimeout(v8::Handle<v8::Value> value, uint32_t interval) {
   Timeout* timeout = new Timeout();
   if (!timeout->Initialize(this, value, interval))
     return 0;
@@ -375,8 +382,8 @@ Timeout* Entd::ClearTimeout(uint32_t timeout_handle) {
 }
 
 void Entd::OnTimeout(const Timeout& timeout) {
-  Context::Scope context_scope(context_);
-  HandleScope handle_scope;
+  v8::Context::Scope context_scope(context_);
+  v8::HandleScope handle_scope;
 
   uint32_t timeout_handle = timeout.GetHandle();
   // LOG(INFO) << "OnTimeout: " << timeout_handle;
@@ -390,16 +397,16 @@ void Entd::OnTimeout(const Timeout& timeout) {
   if (!ClearTimeout(timeout_handle))
     LOG(ERROR) << "Failed to clear the current timeout, something is fishy.";
 
-  Local<Value> value = timeout.GetValue();
+  v8::Local<v8::Value> value = timeout.GetValue();
   if (value->IsString()) {
-    Handle<String> script = Handle<String>::Cast(value);
-    Handle<Value> result;
+    v8::Handle<v8::String> script = v8::Handle<v8::String>::Cast(value);
+    v8::Handle<v8::Value> result;
     char filename[20];
     snprintf(&filename[0], sizeof(filename), "(timeout %u)", timeout_handle);
     ExecuteString(script, filename, &result);
 
   } else if (value->IsFunction()) {
-    Handle<Function> func = Handle<Function>::Cast(value);
+    v8::Handle<v8::Function> func = v8::Handle<v8::Function>::Cast(value);
     func->Call(context_->Global(), 0, NULL);
   }
 }
@@ -439,13 +446,14 @@ bool Entd::ClearNativeTimeout(uint32_t handle) {
   return false;
 }
 
-bool Entd::JsonParseFromFile(const string& filename, Handle<Value>* result) {
+bool Entd::JsonParseFromFile(const string& filename,
+                             v8::Handle<v8::Value>* result) {
   if (!result) {
     LOG(ERROR) << "Null pointer passed for result";
     return false;
   }
 
-  Handle<String> source = utils::ReadFile(filename);
+  v8::Handle<v8::String> source = utils::ReadFile(filename);
   if (source.IsEmpty()) {
     LOG(ERROR) << "Error reading json file: " << filename;
     return false;
@@ -454,40 +462,43 @@ bool Entd::JsonParseFromFile(const string& filename, Handle<Value>* result) {
   return JsonParse(source, result);
 }
 
-bool Entd::JsonParse(Handle<String> source, Handle<Value>* result) {
+bool Entd::JsonParse(v8::Handle<v8::String> source,
+                     v8::Handle<v8::Value>* result) {
   return CallJson("parse", source, result);
 }
 
-bool Entd::JsonStringify(Handle<Value> source, Handle<Value>* result) {
+bool Entd::JsonStringify(v8::Handle<v8::Value> source,
+                         v8::Handle<v8::Value>* result) {
   return CallJson("stringify", source, result);
 }
 
-bool Entd::CallJson(string method_name, Handle<Value> arg,
-                    Handle<Value>* result) {
+bool Entd::CallJson(string method_name, v8::Handle<v8::Value> arg,
+                    v8::Handle<v8::Value>* result) {
   if (!result) {
     LOG(ERROR) << "Null pointer passed for result";
     return false;
   }
 
-  Handle<Value> value = context_->Global()->Get(String::NewSymbol("JSON"));
+  v8::Handle<v8::Value> value =
+      context_->Global()->Get(v8::String::NewSymbol("JSON"));
   if (value.IsEmpty() || !value->IsObject()) {
     LOG(ERROR) << "Global JSON property missing or not an object.";
     return false;
   }
 
-  Handle<Object> json = Handle<Object>::Cast(value);
+  v8::Handle<v8::Object> json = v8::Handle<v8::Object>::Cast(value);
 
-  value = json->Get(String::NewSymbol(method_name.c_str()));
+  value = json->Get(v8::String::NewSymbol(method_name.c_str()));
   if (value.IsEmpty() || !value->IsFunction()) {
     LOG(ERROR) << "JSON method missing or not a function: " << method_name;
     return false;
   }
 
-  Handle<Function> fun = Handle<Function>::Cast(value);
+  v8::Handle<v8::Function> fun = v8::Handle<v8::Function>::Cast(value);
 
-  TryCatch try_catch;
-  Handle<Value> call_result = utils::CallV8Function(json, method_name, 1,
-                                                    &arg);
+  v8::TryCatch try_catch;
+  v8::Handle<v8::Value> call_result =
+      utils::CallV8Function(json, method_name, 1, &arg);
   if (try_catch.HasCaught()) {
     // Failed due to V8 exception
     utils::ReportV8Exception(&try_catch);
@@ -503,9 +514,9 @@ bool Entd::CallJson(string method_name, Handle<Value> arg,
 }
 
 bool Entd::ExecuteFile(const std::string& filename,
-                       Handle<Value>* result) {
-  HandleScope handle_scope;
-  Handle<String> source = utils::ReadFile(filename);
+                       v8::Handle<v8::Value>* result) {
+  v8::HandleScope handle_scope;
+  v8::Handle<v8::String> source = utils::ReadFile(filename);
   if (!source.IsEmpty()) {
     return ExecuteString(source, filename, result);
   } else {
@@ -514,14 +525,14 @@ bool Entd::ExecuteFile(const std::string& filename,
   }
 }
 
-bool Entd::ExecuteString(const Handle<String>& source,
+bool Entd::ExecuteString(const v8::Handle<v8::String>& source,
                          const std::string& filename,
-                         Handle<Value>* result) {
-  HandleScope handle_scope;
-  TryCatch try_catch;
+                         v8::Handle<v8::Value>* result) {
+  v8::HandleScope handle_scope;
+  v8::TryCatch try_catch;
 
-  Handle<Script> script =
-      Script::Compile(source, String::New(filename.c_str()));
+  v8::Handle<v8::Script> script =
+      v8::Script::Compile(source, v8::String::New(filename.c_str()));
 
   if (script.IsEmpty()) {
     utils::ReportV8Exception(&try_catch);

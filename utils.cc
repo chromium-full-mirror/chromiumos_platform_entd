@@ -15,7 +15,6 @@ namespace entd {
 
 namespace utils {
 
-using namespace v8;
 
 void* malloc(size_t size) {
   void* rv = ::malloc(size);
@@ -59,14 +58,14 @@ v8::Handle<v8::String> ReadFile(const std::string& name) {
 }
 
 std::string ValueAsUtf8String(v8::Handle<v8::Value> value) {
-  Local<String> s = value->ToString();
-  return std::string(*String::Utf8Value(s));
+  v8::Local<v8::String> s = value->ToString();
+  return std::string(*v8::String::Utf8Value(s));
 }
 
 std::string GetPropertyAsString(v8::Handle<v8::Object> obj,
                                 const std::string& name) {
   std::string res;
-  Handle<String> jsname = String::New(name.c_str());
+  v8::Handle<v8::String> jsname = v8::String::New(name.c_str());
   if (obj->Has(jsname)) {
     res = ValueAsUtf8String(obj->Get(jsname));
   }
@@ -78,20 +77,22 @@ StringList GetPropertyAsStringList(v8::Handle<v8::Object> obj,
                                    const std::string& name,
                                    const std::string& delim) {
   StringList result;
-  Handle<String> jsname = String::New(name.c_str());
+  v8::Handle<v8::String> jsname = v8::String::New(name.c_str());
   if (obj->Has(jsname)) {
-    Local<Value> jsvalue = obj->Get(jsname);
+    v8::Local<v8::Value> jsvalue = obj->Get(jsname);
     if (jsvalue->IsArray()) {
-      Local<Array> jsarray = Local<Array>::Cast(obj->Get(jsname));
+      v8::Local<v8::Array> jsarray =
+          v8::Local<v8::Array>::Cast(obj->Get(jsname));
       for (size_t i = 0; i < jsarray->Length(); i++) {
         std::string s = ValueAsUtf8String(jsarray->Get(i));
         result.push_back(s);
       }
     } else if (jsvalue->IsObject()) {
-      Local<Object> paramobj = Local<Object>::Cast(obj->Get(jsname));
-      Local<Array> props = paramobj->GetPropertyNames();
+      v8::Local<v8::Object> paramobj =
+          v8::Local<v8::Object>::Cast(obj->Get(jsname));
+      v8::Local<v8::Array> props = paramobj->GetPropertyNames();
       for (size_t i = 0; i < props->Length(); ++i) {
-        Handle<Value> propname = props->Get(i);
+        v8::Handle<v8::Value> propname = props->Get(i);
         std::string name = ValueAsUtf8String(propname);
         std::string value = ValueAsUtf8String(paramobj->Get(propname));
         std::string s = name + delim + value;
@@ -103,15 +104,15 @@ StringList GetPropertyAsStringList(v8::Handle<v8::Object> obj,
 }
 
 void ThrowV8Exception(const std::string& err) {
-  ThrowException(String::New(err.c_str()));
+  ThrowException(v8::String::New(err.c_str()));
 }
 
-void ReportV8Exception(TryCatch* try_catch) {
+void ReportV8Exception(v8::TryCatch* try_catch) {
   std::cerr << "V8 Exception:\n";
-  HandleScope handle_scope;
-  String::Utf8Value exception(try_catch->Exception());
+  v8::HandleScope handle_scope;
+  v8::String::Utf8Value exception(try_catch->Exception());
   const char* exception_string = utils::ToCString(exception);
-  Handle<Message> message = try_catch->Message();
+  v8::Handle<v8::Message> message = try_catch->Message();
 
   if (message.IsEmpty()) {
     // V8 didn't provide any extra information about this error; just
@@ -119,14 +120,14 @@ void ReportV8Exception(TryCatch* try_catch) {
     std::cerr << exception_string << '\n';
   } else {
     // Print (filename):(line number): (message).
-    String::Utf8Value filename(message->GetScriptResourceName());
+    v8::String::Utf8Value filename(message->GetScriptResourceName());
     const char* filename_string = utils::ToCString(filename);
     int linenum = message->GetLineNumber();
     std::cerr << filename_string << ':' << linenum << ": " <<
         exception_string << '\n';
 
     // Print line of source code.
-    String::Utf8Value sourceline(message->GetSourceLine());
+    v8::String::Utf8Value sourceline(message->GetSourceLine());
     const char* sourceline_string = utils::ToCString(sourceline);
     std::cerr << sourceline_string << '\n';
 
@@ -150,23 +151,23 @@ void ReportV8Exception(TryCatch* try_catch) {
 // instead of ThrowException
 // If called from a JS stack, the caller should throw an
 // exception if this returns an empty handle.
-Handle<Value> CallV8Function(Handle<Object> obj,
+v8::Handle<v8::Value> CallV8Function(v8::Handle<v8::Object> obj,
                              const std::string& cb_name,
-                             int argc, Handle<Value> argv[]) {
+                             int argc, v8::Handle<v8::Value> argv[]) {
   if (obj.IsEmpty() || !obj->IsObject()) {
     LOG(ERROR) << "Invalid object when trying to call: " << cb_name;
-    return Handle<Value>();
+    return v8::Handle<v8::Value>();
   }
-  Handle<Value> cb = obj->Get(String::New(cb_name.c_str()));
+  v8::Handle<v8::Value> cb = obj->Get(v8::String::New(cb_name.c_str()));
   if (cb->IsUndefined()) {
     LOG(ERROR) << "Object does not have property: "<< cb_name;
-    return Handle<Value>();
+    return v8::Handle<v8::Value>();
   }
   if (!cb->IsFunction()) {
     LOG(ERROR) << "Property is not a function: " << cb_name;
-    return Handle<Value>();
+    return v8::Handle<v8::Value>();
   }
-  return Handle<Function>::Cast(cb)->Call(obj, argc, argv);
+  return v8::Handle<v8::Function>::Cast(cb)->Call(obj, argc, argv);
 }
 
 }  // namespace utils

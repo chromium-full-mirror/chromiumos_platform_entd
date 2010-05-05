@@ -20,13 +20,12 @@
 
 namespace entd {
 
-using namespace v8;
 
 Syslog::~Syslog() {
   CleanupTemplate();  // We only have one Syslog instance
 }
 
-static Handle<Value> dispatch_Info(const Arguments& args) {
+static v8::Handle<v8::Value> dispatch_Info(const v8::Arguments& args) {
   std::string msg;
   for (int i = 0; i < args.Length(); ++i) {
     if (i != 0) msg += '\n';
@@ -36,7 +35,7 @@ static Handle<Value> dispatch_Info(const Arguments& args) {
   return v8::True();
 }
 
-static Handle<Value> dispatch_Warn(const Arguments& args) {
+static v8::Handle<v8::Value> dispatch_Warn(const v8::Arguments& args) {
   std::string msg;
   for (int i = 0; i < args.Length(); ++i) {
     if (i != 0) msg += '\n';
@@ -46,7 +45,7 @@ static Handle<Value> dispatch_Warn(const Arguments& args) {
   return v8::True();
 }
 
-static Handle<Value> dispatch_Error(const Arguments& args) {
+static v8::Handle<v8::Value> dispatch_Error(const v8::Arguments& args) {
   std::string msg;
   for (int i = 0; i < args.Length(); ++i) {
     if (i != 0) msg += '\n';
@@ -57,13 +56,14 @@ static Handle<Value> dispatch_Error(const Arguments& args) {
 }
 
 // static
-void Syslog::SetTemplateBindings(Handle<ObjectTemplate> template_object) {
-  template_object->Set(String::NewSymbol("info"),
-                       FunctionTemplate::New(dispatch_Info));
-  template_object->Set(String::NewSymbol("warn"),
-                       FunctionTemplate::New(dispatch_Warn));
-  template_object->Set(String::NewSymbol("error"),
-                       FunctionTemplate::New(dispatch_Error));
+void Syslog::SetTemplateBindings(
+    v8::Handle<v8::ObjectTemplate> template_object) {
+  template_object->Set(v8::String::NewSymbol("info"),
+                       v8::FunctionTemplate::New(dispatch_Info));
+  template_object->Set(v8::String::NewSymbol("warn"),
+                       v8::FunctionTemplate::New(dispatch_Warn));
+  template_object->Set(v8::String::NewSymbol("error"),
+                       v8::FunctionTemplate::New(dispatch_Error));
 }
 
 } // namespace entd

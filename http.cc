@@ -39,7 +39,6 @@
 
 namespace entd {
 
-using namespace v8;
 
 //==============================================================================
 // Class HttpRequest
@@ -52,10 +51,12 @@ class HttpRequest : public JSObjectWrapper<HttpRequest> {
   static const char* GetClassName() { return "Request"; }
 
   // Bind functions / properties to the V8 template object here
-  static void SetTemplateBindings(Handle<ObjectTemplate> template_object);
+  static void SetTemplateBindings(
+      v8::Handle<v8::ObjectTemplate> template_object);
 
   // Parse arguments once the v8 object has been constructed
-  virtual void ParseConstructorArgs(Handle<Object> obj, const Arguments& args);
+  virtual void ParseConstructorArgs(
+      v8::Handle<v8::Object> obj, const v8::Arguments& args);
 
   // Accessors
   std::string GetString(const std::string& name);
@@ -83,12 +84,13 @@ class HttpRequest : public JSObjectWrapper<HttpRequest> {
 // === HttpRequest Member Functions ===
 
 //static
-void HttpRequest::SetTemplateBindings(Handle<ObjectTemplate> template_object){
+void HttpRequest::SetTemplateBindings(
+    v8::Handle<v8::ObjectTemplate> template_object){
   // Add named properties to the template object so that they always
   //  exist, even if they are not specified explicitly in a Request
-  template_object->Set(String::NewSymbol("url"), String::New(""));
-  template_object->Set(String::NewSymbol("params"), Object::New());
-  template_object->Set(String::NewSymbol("headers"), Object::New());
+  template_object->Set(v8::String::NewSymbol("url"), v8::String::New(""));
+  template_object->Set(v8::String::NewSymbol("params"), v8::Object::New());
+  template_object->Set(v8::String::NewSymbol("headers"), v8::Object::New());
 }
 
 // Append received bytes to std::vector<char> buffer_
@@ -135,22 +137,22 @@ utils::StringList HttpRequest::GetStringList(const std::string& name,
 // response.content= the body of request as a single String
 // response.headers= the headers as an Array of Strings
 void HttpRequest::CallComplete(int http_code) {
-  Local<Object> response = Object::New();
-  response->Set(String::NewSymbol("url"),
-                String::New(&url_[0], url_.length()));
-  response->Set(String::NewSymbol("code"),
-                Integer::New(http_code));
-  response->Set(String::NewSymbol("content"),
-                String::New(&buffer_[0], buffer_.size()));
-  Local<Array> jsheaders = Array::New(headers_.size());
+  v8::Local<v8::Object> response = v8::Object::New();
+  response->Set(v8::String::NewSymbol("url"),
+                v8::String::New(&url_[0], url_.length()));
+  response->Set(v8::String::NewSymbol("code"),
+                v8::Integer::New(http_code));
+  response->Set(v8::String::NewSymbol("content"),
+                v8::String::New(&buffer_[0], buffer_.size()));
+  v8::Local<v8::Array> jsheaders = v8::Array::New(headers_.size());
   utils::StringList::iterator iter = headers_.begin();
   for (int i=0; iter != headers_.end(); ++iter, ++i) {
     const std::string& h = *iter;
-    Local<String> jsh = String::New(&h[0], h.length());
+    v8::Local<v8::String> jsh = v8::String::New(&h[0], h.length());
     jsheaders->Set(i, jsh);
   }
-  response->Set(String::NewSymbol("headers"), jsheaders);
-  Local<Value> arg = response;
+  response->Set(v8::String::NewSymbol("headers"), jsheaders);
+  v8::Local<v8::Value> arg = response;
   utils::CallV8Function(obj(), "onComplete", 1, &arg);
 }
 
@@ -161,25 +163,25 @@ void HttpRequest::CallTimeout() {
 
 // Call 'onError' if it exists with 'errdesc' as an argument
 void HttpRequest::CallError(const std::string& errdesc) {
-  Local<Value> errobj = String::New(errdesc.c_str());
+  v8::Local<v8::Value> errobj = v8::String::New(errdesc.c_str());
   utils::CallV8Function(obj(), "onError", 1, &errobj);
 }
 
 // === HttpRequest Static Functions ===
 
 //virtual
-void HttpRequest::ParseConstructorArgs(Handle<Object> obj,
-                                       const Arguments& args) {
-  //  args[N] will return Undefined if N is out of range
-  Handle<Value> url = args[0];
+void HttpRequest::ParseConstructorArgs(v8::Handle<v8::Object> obj,
+                                       const v8::Arguments& args) {
+  //  args[N] will return v8::Undefined if N is out of range
+  v8::Handle<v8::Value> url = args[0];
   if (!url->IsUndefined() && url->IsString())
-    obj->Set(String::NewSymbol("url"), url);
-  Handle<Value> params = args[1];
+    obj->Set(v8::String::NewSymbol("url"), url);
+  v8::Handle<v8::Value> params = args[1];
   if (!params->IsUndefined() && (params->IsObject() || params->IsArray()))
-    obj->Set(String::NewSymbol("params"), params);
-  Handle<Value> headers = args[2];
+    obj->Set(v8::String::NewSymbol("params"), params);
+  v8::Handle<v8::Value> headers = args[2];
   if (!headers->IsUndefined() && (headers->IsObject() || headers->IsArray()))
-    obj->Set(String::NewSymbol("headers"), headers);
+    obj->Set(v8::String::NewSymbol("headers"), headers);
 }
 
 //==============================================================================
@@ -475,25 +477,25 @@ bool Http::Update(void *data) {
   return pending ? true : false;
 }
 
-static Handle<Value> dispatch_HttpGet(const Arguments& args);
-static Handle<Value> dispatch_HttpPost(const Arguments& args);
+static v8::Handle<v8::Value> dispatch_HttpGet(const v8::Arguments& args);
+static v8::Handle<v8::Value> dispatch_HttpPost(const v8::Arguments& args);
 
 // static
-void Http::SetTemplateBindings(Handle<ObjectTemplate> template_object) {
-  template_object->Set(String::NewSymbol("Request"),
-                       FunctionTemplate::New(HttpRequest::Construct),
-                       ReadOnly);
-  template_object->Set(String::NewSymbol("GET"),
-                       FunctionTemplate::New(dispatch_HttpGet),
-                       ReadOnly);
-  template_object->Set(String::NewSymbol("POST"),
-                       FunctionTemplate::New(dispatch_HttpPost),
-                       ReadOnly);
+void Http::SetTemplateBindings(v8::Handle<v8::ObjectTemplate> template_object) {
+  template_object->Set(v8::String::NewSymbol("Request"),
+                       v8::FunctionTemplate::New(HttpRequest::Construct),
+                       v8::ReadOnly);
+  template_object->Set(v8::String::NewSymbol("GET"),
+                       v8::FunctionTemplate::New(dispatch_HttpGet),
+                       v8::ReadOnly);
+  template_object->Set(v8::String::NewSymbol("POST"),
+                       v8::FunctionTemplate::New(dispatch_HttpPost),
+                       v8::ReadOnly);
 }
 
 //==== local dispatch fucntions for Http template bindings ====
 
-static bool dispatch_get_request(const Arguments& args,
+static bool dispatch_get_request(const v8::Arguments& args,
                                  Http*& jshttp, HttpRequest*& request) {
   jshttp = Http::Unwrap(args.This());
   if (!jshttp) {
@@ -512,7 +514,7 @@ static bool dispatch_get_request(const Arguments& args,
   return true;
 }
 
-static Handle<Value> dispatch_HttpGet(const Arguments& args) {
+static v8::Handle<v8::Value> dispatch_HttpGet(const v8::Arguments& args) {
   Http* jshttp;
   HttpRequest* request;
   bool res = false;
@@ -522,7 +524,7 @@ static Handle<Value> dispatch_HttpGet(const Arguments& args) {
   return res ? v8::True() : v8::False();
 }
 
-static Handle<Value> dispatch_HttpPost(const Arguments& args) {
+static v8::Handle<v8::Value> dispatch_HttpPost(const v8::Arguments& args) {
   Http* jshttp;
   HttpRequest* request;
   bool res = false;
