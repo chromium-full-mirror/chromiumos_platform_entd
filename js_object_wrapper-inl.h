@@ -19,6 +19,30 @@ bool JSObjectWrapper<T>::Initialize() {
 
 //static
 template<typename T>
+v8::Handle<v8::Value> JSObjectWrapper<T>::Construct(
+    const v8::Arguments& args) {
+  if (!args.IsConstructCall()) {
+    utils::ThrowV8Exception(std::string(T::GetClassName())
+                            + " must be called as a constructor.");
+    return v8::Undefined();
+  }
+
+  // Construct the C++ object and initialize it
+  T* instance = new T();
+  instance->Initialize();
+  v8::Handle<v8::Object> obj = instance->obj();
+
+  // Set any properties in the V8 object based on input arguments
+  // (Overridden by inherited class, otherwise this is an empty function)
+  // Note: args[N] will safely return Undefined if N is out of range
+  instance->ParseConstructorArgs(obj, args);
+
+  // Return the V8 object so that JS can bind the result
+  return obj;
+}
+
+//static
+template<typename T>
 T* JSObjectWrapper<T>::Unwrap(v8::Handle<v8::Object> obj) {
   if (obj.IsEmpty() || !obj->IsObject())    // Make sure the argument is valid
     return NULL;

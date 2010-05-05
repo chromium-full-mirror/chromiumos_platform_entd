@@ -9,6 +9,8 @@
 #include <v8.h>
 #include <base/basictypes.h>
 
+#include "entd/utils.h"
+
 namespace entd {
 
 // Template class to bind a C++ object to a V8 object.
@@ -33,11 +35,16 @@ class JSObjectWrapper {
 
   // ==== JS Object instance management ====
 
-  // GetClassName() must be defined for the derived class:
-  //static const char* GetClassName() { return "foo"; }
-
   // Make sure to call JSObjectWrapper<Foo>::Initialize() if overridden by Foo
   virtual bool Initialize();
+
+  // Builds an instance and passes args to ParseConstructorArgs()
+  static v8::Handle<v8::Value> Construct(const v8::Arguments& args);
+
+  // Override this to parse the args and set instance properties
+  virtual void ParseConstructorArgs(v8::Handle<v8::Object> obj,
+                                    const v8::Arguments& args) {
+  }
 
   // Extract the C++ object pointer from the V8 object internal field 0
   static T* Unwrap(v8::Handle<v8::Object> obj);
@@ -46,6 +53,9 @@ class JSObjectWrapper {
   static T* GetFromArg(const v8::Arguments& args, int index);
 
   // ==== JS Function Template management ====
+
+  // GetClassName() must be defined for the derived class:
+  //static const char* GetClassName() { return "foo"; }
 
   // Return the V8 template. ManageTemplete will build it if necessary.
   // Define SetTemplateBindings() to bind JS methods to C++ (see below)

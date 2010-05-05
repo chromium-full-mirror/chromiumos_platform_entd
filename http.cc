@@ -54,8 +54,8 @@ class HttpRequest : public JSObjectWrapper<HttpRequest> {
   // Bind functions / properties to the V8 template object here
   static void SetTemplateBindings(Handle<ObjectTemplate> template_object);
 
-  // Construct a HttpRequest and associated v8 Object
-  static Handle<Value> MakeHttpRequest(const Arguments& args);
+  // Parse arguments once the v8 object has been constructed
+  virtual void ParseConstructorArgs(Handle<Object> obj, const Arguments& args);
 
   // Accessors
   std::string GetString(const std::string& name);
@@ -167,20 +167,9 @@ void HttpRequest::CallError(const std::string& errdesc) {
 
 // === HttpRequest Static Functions ===
 
-// Construct a HttpRequest and return the V8 object
-//static
-Handle<Value> HttpRequest::MakeHttpRequest(const Arguments& args) {
-  if (!args.IsConstructCall()) {
-    utils::ThrowV8Exception("Request() called in non constructor.");
-    return v8::Undefined();
-  }
-
-  // Construct the HttpRequest and initialize it
-  HttpRequest* request = new HttpRequest();
-  request->Initialize();
-  Handle<Object> obj = request->obj();
-
-  // Initialize any properties in the V8 object based on input arguments
+//virtual
+void HttpRequest::ParseConstructorArgs(Handle<Object> obj,
+                                       const Arguments& args) {
   //  args[N] will return Undefined if N is out of range
   Handle<Value> url = args[0];
   if (!url->IsUndefined() && url->IsString())
@@ -191,9 +180,6 @@ Handle<Value> HttpRequest::MakeHttpRequest(const Arguments& args) {
   Handle<Value> headers = args[2];
   if (!headers->IsUndefined() && (headers->IsObject() || headers->IsArray()))
     obj->Set(String::NewSymbol("headers"), headers);
-
-  // Return the V8 object so that JS can bind the result
-  return obj;
 }
 
 //==============================================================================
@@ -346,7 +332,9 @@ bool HttpCurlEasy::CurlSendRequest(HttpRequest* request, CURL* handle) {
                code == CURLE_COULDNT_CONNECT) {
       request->CallError(std::string(curl_easy_strerror(code)));
     } else {
-      LOG(WARNING) << "Error in curl_easy_perform: " << code;
+      LOG(WARNING) << "Error in curl_easy_perform: "
+                   << curl_easy_strerror(code)
+                   << " (" << code << ")";
       request->CallError(std::string(curl_easy_strerror(code)));
     }
     res = false;
@@ -493,7 +481,7 @@ static Handle<Value> dispatch_HttpPost(const Arguments& args);
 // static
 void Http::SetTemplateBindings(Handle<ObjectTemplate> template_object) {
   template_object->Set(String::NewSymbol("Request"),
-                       FunctionTemplate::New(HttpRequest::MakeHttpRequest),
+                       FunctionTemplate::New(HttpRequest::Construct),
                        ReadOnly);
   template_object->Set(String::NewSymbol("GET"),
                        FunctionTemplate::New(dispatch_HttpGet),
