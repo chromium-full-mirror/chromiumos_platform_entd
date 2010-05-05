@@ -12,6 +12,7 @@ namespace switches {
 // Location of the policy file
 static const char *kManifest = "manifest";
 static const char *kPolicy = "policy";
+static const char *kUsername = "username";
 static const char *kUtility = "utility";
 }
 
@@ -21,10 +22,14 @@ int main(int argc, char** argv) {
   CommandLine* cl = CommandLine::ForCurrentProcess();
   std::string manifest = cl->GetSwitchValueASCII(switches::kManifest);
   std::string policy = cl->GetSwitchValueASCII(switches::kPolicy);
+  std::string username = cl->GetSwitchValueASCII(switches::kUsername);
   std::string utility = cl->GetSwitchValueASCII(switches::kUtility);
 
   entd::Entd d;
   d.Initialize();
+
+  if (!username.empty())
+    d.SetUsername(username);
 
   if (!utility.empty())
     d.SetUtilityFile(utility);

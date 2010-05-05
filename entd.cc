@@ -319,6 +319,7 @@ bool Entd::Run() {
 
   TryCatch try_catch;
   Handle<Object> entd = Handle<Object>::Cast(value);
+  entd->Set(String::NewSymbol("username"), String::New(username_.c_str()));
   value = utils::CallV8Function(entd, "onLoad", 1, &manifest);
   if (try_catch.HasCaught()) {
     // Failed due to V8 exception

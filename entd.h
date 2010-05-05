@@ -31,6 +31,11 @@ class Entd : public JSObjectWrapper<Entd> {
   Entd();
   virtual ~Entd();
 
+  void SetUsername(const std::string& username) {
+    LOG(INFO) << "Username set to: " << username;
+    username_ = username;
+  }
+
   void SetUtilityFile(const std::string& filename) {
     LOG(INFO) << "Utility file set to: " << filename;
     utility_filename_ = filename;
@@ -110,6 +115,7 @@ class Entd : public JSObjectWrapper<Entd> {
   std::string utility_filename_;
   std::string manifest_filename_;
   std::string policy_filename_;
+  std::string username_;
   uint32_t timeout_sequence_;
 
   std::vector<Timeout*> timeout_list_;
