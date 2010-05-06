@@ -95,21 +95,25 @@ class NativeTimeout
         interval_(interval_ms * 1000),
         handle_(0), event_(NULL) {
   }
+
   ~NativeTimeout() {
     event_del(event_);
     delete event_;
   }
+
   void Initialize() {
     handle_ = s_handle_counter_++;
     event_ = new struct event;
     event_set(event_, 0, 0, &EventCallback, this);
     Start();
   }
+
   // Calling Start on a running timeout will simply reset the timer
   void Start() {
     struct timeval tv = { 0, interval_ };
     event_add(event_, &tv);
   }
+
   uint32_t GetHandle() { return handle_; }
 
  private:
@@ -121,16 +125,22 @@ class NativeTimeout
       timeout->Start();
     }
   }
+
   // Callback data
   Entd::NativeTimeoutCallback callback_;
   void* data_;
+
   uint32_t interval_;
+
   // Handle identifier (simple integer incrementing from 1)
   uint32_t handle_;
+
   // libevent data
   struct event* event_;
+
   // Global handle counter
   static uint32_t s_handle_counter_;
+
   DISALLOW_COPY_AND_ASSIGN(NativeTimeout);
 };
 

@@ -257,7 +257,7 @@ int HttpCurlEasy::Update() {
   }
 
   requests_.clear();
-  return 0;  // no pending updates
+  return 0;
 }
 
 CURL* HttpCurlEasy::CurlInit() {
@@ -478,10 +478,14 @@ size_t HttpCurlEasy::HttpHeaderCallback(void *ptr, size_t size,
 Http::Http(Entd* entd, HttpMessengerInterface* messenger)
     : JSObjectWrapper<Http>(),
       entd_(entd),
-      messenger_(messenger) {
+      messenger_(messenger),
+      timeout_(0) {
 }
 
 Http::~Http() {
+  if (timeout_)
+    entd_->ClearNativeTimeout(timeout_);
+
   HttpRequest::CleanupTemplate();
   CleanupTemplate();
 }
@@ -494,19 +498,18 @@ bool Http::Initialize() {
     messenger_ = easy_messenger;
   }
 
-  const int CURL_POLL_INTERVAL_MS = 500;
-  timeout_ = entd_->SetNativeTimeout(Update, this, CURL_POLL_INTERVAL_MS);
-
   // Build and initialize the V8 object
   return JSObjectWrapper<Http>::Initialize();
 }
 
-// returns true if we should continue calling Update()
-// static
-bool Http::Update(void *data) {
+static bool dispatch_OnNativeTimeout(void *data) {
   Http* jshttp = reinterpret_cast<Http*>(data);
-  int pending = jshttp->messenger_->Update();
-  return pending ? true : false;
+  return jshttp->OnNativeTimeout();
+}
+
+bool Http::OnNativeTimeout() {
+  timeout_ = 0;
+  return (messenger_->Update() > 0);
 }
 
 static v8::Handle<v8::Value> dispatch_HttpGet(const v8::Arguments& args);
@@ -525,10 +528,24 @@ void Http::SetTemplateBindings(v8::Handle<v8::ObjectTemplate> template_object) {
                        v8::ReadOnly);
 }
 
+bool Http::HttpGet(HttpRequest* request) {
+  if (!timeout_)
+    timeout_ = entd_->SetNativeTimeout(dispatch_OnNativeTimeout, this, 0);
+
+  return messenger_->HttpGet(request);
+}
+
+bool Http::HttpPost(HttpRequest* request) {
+  if (!timeout_)
+    timeout_ = entd_->SetNativeTimeout(dispatch_OnNativeTimeout, this, 0);
+
+  return messenger_->HttpPost(request);
+}
+
 // Local dispatch fucntions for Http template bindings.
 
-static bool dispatch_get_request(const v8::Arguments& args,
-                                 Http*& jshttp, HttpRequest*& request) {
+static bool CheckRequestArgs(const v8::Arguments& args,
+                             Http*& jshttp, HttpRequest*& request) {
   jshttp = Http::Unwrap(args.This());
   if (!jshttp) {
     utils::ThrowV8Exception("Method called on incorrect object type.");
@@ -553,9 +570,10 @@ static v8::Handle<v8::Value> dispatch_HttpGet(const v8::Arguments& args) {
   Http* jshttp;
   HttpRequest* request;
   bool res = false;
-  if (dispatch_get_request(args, jshttp, request)) {
-    res = jshttp->GetMessenger()->HttpGet(request);
-  }
+
+  if (CheckRequestArgs(args, jshttp, request))
+    res = jshttp->HttpGet(request);
+
   return res ? v8::True() : v8::False();
 }
 
@@ -564,9 +582,8 @@ static v8::Handle<v8::Value> dispatch_HttpPost(const v8::Arguments& args) {
   HttpRequest* request;
   bool res = false;
 
-  if (dispatch_get_request(args, jshttp, request)) {
-    res = jshttp->GetMessenger()->HttpPost(request);
-  }
+  if (CheckRequestArgs(args, jshttp, request))
+    res = jshttp->HttpPost(request);
 
   return res ? v8::True() : v8::False();
 }

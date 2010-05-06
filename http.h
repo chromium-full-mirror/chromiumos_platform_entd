@@ -54,15 +54,13 @@ class Http : public JSObjectWrapper<Http> {
   static void SetTemplateBindings(
       v8::Handle<v8::ObjectTemplate> template_object);
 
-  // Accessors
-  HttpMessengerInterface* GetMessenger() { return messenger_; }
+  // Called when the update timer fires.
+  bool OnNativeTimeout();
 
-  // Gets passed to entd_->SetNativeTimeout() to be called periodically
-  static bool Update(void* data);
+  bool HttpGet(HttpRequest* request);
+  bool HttpPost(HttpRequest* request);
 
  private:
-
-  // Internal data
   Entd* entd_;
   HttpMessengerInterface* messenger_;
   uint32_t timeout_;
