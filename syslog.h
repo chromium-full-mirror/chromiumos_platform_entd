@@ -15,9 +15,11 @@
 namespace entd {
 
 // Very simple JS bindings for sending output to the syslog
+//
 //  entd.info("foo") -> LOG(INFO)
 //  entd.warn("foo") -> LOG(WARNING)
 //  entd.error("foo") -> LOG(ERROR)
+//
 class Syslog : public JSObjectWrapper<Syslog> {
  public:
   Syslog() {}

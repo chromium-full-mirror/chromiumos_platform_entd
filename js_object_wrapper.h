@@ -15,12 +15,13 @@ namespace entd {
 
 // Template class to bind a C++ object to a V8 object.
 // The class builds a single global Persistent template object and
-//  reserves a single internal field to hold a pointer to the C++ object.
+// reserves a single internal field to hold a pointer to the C++ object.
 // Each C++ object constructs a V8 object and binds itself to it.
 // Additional bindings happen in SetTemplateBindings().
 //
 // NOTE: This uses the "curiously recurring template pattern"
-//  to implement singleton behavior for function templates.
+// to implement singleton behavior for function templates.
+//
 // Example usage:
 //  class JSSyslog : public JSObjectWrapper<JSSyslog>
 //  {
@@ -33,7 +34,7 @@ class JSObjectWrapper {
     obj_.Dispose();
   }
 
-  // ==== JS Object instance management ====
+  // JS Object instance management...
 
   // Make sure to call JSObjectWrapper<Foo>::Initialize() if overridden by Foo
   virtual bool Initialize();
@@ -52,10 +53,10 @@ class JSObjectWrapper {
   // Unwrap the C++ object pointer from args[index]
   static T* GetFromArg(const v8::Arguments& args, int index);
 
-  // ==== JS Function Template management ====
+  // JS Function Template management...
 
   // GetClassName() must be defined for the derived class:
-  //static const char* GetClassName() { return "foo"; }
+  // static const char* GetClassName() { return "foo"; }
 
   // Return the V8 template. ManageTemplete will build it if necessary.
   // Define SetTemplateBindings() to bind JS methods to C++ (see below)
@@ -74,14 +75,16 @@ class JSObjectWrapper {
  private:
 
   // ManageTemplate handles construction and destruction of a
-  //  singleton function template instance.
-  // If build==true, construct the template object if necessary.
-  // If build==false, dispose of the template if it exists.
-  //  Returns the function template handle (undefined if build==false)
+  // singleton function template instance.
+  //
+  // If build is true, construct the template object if necessary, otherwise
+  // dispose of the template if it exists.
+  //
+  // Returns the function template handle (undefined if build is false)
   static v8::Handle<v8::FunctionTemplate> ManageTemplate(bool build);
 
-// Override this to bind methods or data to the template. e.g.:
-//   tmpl_obj->Set(String::New("bar"), FunctionTemplate::New(dispatch_Bar));
+  // Override this to bind methods or data to the template. e.g.:
+  // tmpl_obj->Set(String::New("bar"), FunctionTemplate::New(dispatch_Bar));
   static void SetTemplateBindings(v8::Handle<v8::ObjectTemplate> tmpl_obj) {}
 
   // V8 Object bound to this C++ instance

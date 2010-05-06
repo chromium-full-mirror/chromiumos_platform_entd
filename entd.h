@@ -81,20 +81,24 @@ class Entd : public JSObjectWrapper<Entd> {
 
   // Call a native function at a specified interval specified in miliseconds
   // This sets up and starts the timeout.
+  //
   // NativeTimeoutCallback is a typedef'd function that receives 'data'
-  //  as its argument and returns true if it needs to be called again or
-  //  false if it has completed. (Can be restarted with StartNativeTimeout())
+  // as its argument and returns true if it needs to be called again or
+  // false if it has completed. (Can be restarted with StartNativeTimeout())
+  //
   // Returns an integer handle that can be used to cancel the timeout
   virtual uint32_t SetNativeTimeout(NativeTimeoutCallback cb, void *data,
                                     uint32_t interval_ms);
 
   // Start a native timeout after it has stopped. If the timeout is already
-  //  started this will reset the timer.
+  // started this will reset the timer.
+  //
   // Returns false if the timeout doesn't exist
   virtual bool StartNativeTimeout(uint32_t handle);
 
   // Cancels a native timeout function. This cancels any event timers,
-  //  removes the timeout from the list, and deletes the timeout.
+  // removes the timeout from the list, and deletes the timeout.
+  //
   // Returns false if the timeout doesn't exist
   virtual bool ClearNativeTimeout(uint32_t timeout_handle);
 

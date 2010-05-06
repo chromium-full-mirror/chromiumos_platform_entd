@@ -78,18 +78,23 @@ StringList GetPropertyAsStringList(v8::Handle<v8::Object> obj,
                                    const std::string& delim) {
   StringList result;
   v8::Handle<v8::String> jsname = v8::String::New(name.c_str());
+
   if (obj->Has(jsname)) {
     v8::Local<v8::Value> jsvalue = obj->Get(jsname);
+
     if (jsvalue->IsArray()) {
       v8::Local<v8::Array> jsarray =
           v8::Local<v8::Array>::Cast(obj->Get(jsname));
+
       for (size_t i = 0; i < jsarray->Length(); i++) {
         std::string s = ValueAsUtf8String(jsarray->Get(i));
         result.push_back(s);
       }
+
     } else if (jsvalue->IsObject()) {
       v8::Local<v8::Object> paramobj =
           v8::Local<v8::Object>::Cast(obj->Get(jsname));
+
       v8::Local<v8::Array> props = paramobj->GetPropertyNames();
       for (size_t i = 0; i < props->Length(); ++i) {
         v8::Handle<v8::Value> propname = props->Get(i);
@@ -118,6 +123,7 @@ void ReportV8Exception(v8::TryCatch* try_catch) {
     // V8 didn't provide any extra information about this error; just
     // print the exception.
     std::cerr << exception_string << '\n';
+
   } else {
     // Print (filename):(line number): (message).
     v8::String::Utf8Value filename(message->GetScriptResourceName());
@@ -158,15 +164,18 @@ v8::Handle<v8::Value> CallV8Function(v8::Handle<v8::Object> obj,
     LOG(ERROR) << "Invalid object when trying to call: " << cb_name;
     return v8::Handle<v8::Value>();
   }
+
   v8::Handle<v8::Value> cb = obj->Get(v8::String::New(cb_name.c_str()));
   if (cb->IsUndefined()) {
     LOG(ERROR) << "Object does not have property: "<< cb_name;
     return v8::Handle<v8::Value>();
   }
+
   if (!cb->IsFunction()) {
     LOG(ERROR) << "Property is not a function: " << cb_name;
     return v8::Handle<v8::Value>();
   }
+
   return v8::Handle<v8::Function>::Cast(cb)->Call(obj, argc, argv);
 }
 

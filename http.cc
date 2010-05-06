@@ -2,17 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-
 // Integrate HTTP GET / POST with V8.
 // Current implementations include: libcurl
-
+//
 // Example js usage:
-
+//
 //   var desc = "google cert";
 //   var url = "https://ra.corp.google.com/";
-
+//
 //   var httpRequest = new entd.http.Request(url);
-
+//
 //   httpRequest.params.push("username", entd.username);
 //   httpRequest.params.push("desc", desc);
 //   httpRequest.onComplete = function(r) { onRequestComplete(desc, r) };
@@ -20,9 +19,8 @@
 //     function() { onHTTPTimeout("cert-request: " + desc) };
 //   httpRequest.onError =
 //     function(reason) { onHTTPError(reason, "cert-request: " + desc) };
-
+//
 //   entd.http.GET(httpRequest);
-
 
 #include "entd/http.h"
 
@@ -39,9 +37,7 @@
 
 namespace entd {
 
-
-//==============================================================================
-// Class HttpRequest
+// Class HttpRequest...
 
 class HttpRequest : public JSObjectWrapper<HttpRequest> {
  public:
@@ -50,11 +46,9 @@ class HttpRequest : public JSObjectWrapper<HttpRequest> {
 
   static const char* GetClassName() { return "Request"; }
 
-  // Bind functions / properties to the V8 template object here
+  // JSObjectWrapper methods
   static void SetTemplateBindings(
       v8::Handle<v8::ObjectTemplate> template_object);
-
-  // Parse arguments once the v8 object has been constructed
   virtual void ParseConstructorArgs(
       v8::Handle<v8::Object> obj, const v8::Arguments& args);
 
@@ -81,9 +75,9 @@ class HttpRequest : public JSObjectWrapper<HttpRequest> {
   DISALLOW_COPY_AND_ASSIGN(HttpRequest);
 };
 
-// === HttpRequest Member Functions ===
+// HttpRequest Member Functions...
 
-//static
+// static
 void HttpRequest::SetTemplateBindings(
     v8::Handle<v8::ObjectTemplate> template_object){
   // Add named properties to the template object so that they always
@@ -107,6 +101,7 @@ void HttpRequest::AppendBuffer(const char* data, size_t bytes) {
 // Append received header to internal list of headers
 void HttpRequest::AppendHeader(const std::string& header) {
   std::string new_header(header);
+
   // Trim trailing newline and CR
   while (new_header.size() > 0) {
     int last = new_header.size()-1;
@@ -115,76 +110,83 @@ void HttpRequest::AppendHeader(const std::string& header) {
     else
       break;
   }
+
   headers_.push_back(new_header);
 }
 
 // Retrieve the named JS property from the associated V8 object
-//  and convert it to a std::string
+// and convert it to a std::string
 std::string HttpRequest::GetString(const std::string& name) {
   return utils::GetPropertyAsString(obj(), name);
 }
 
 // Retrieve the named JS property from the associated V8 object
-//  and convert it to a StringList
+// and convert it to a StringList
 utils::StringList HttpRequest::GetStringList(const std::string& name,
                                              const std::string& delim) {
   return utils::GetPropertyAsStringList(obj(), name, delim);
 }
 
 // Set the following JS properties and call 'onComplete' if defined
-// response.url= the actual url the request was sent to (including parameters)
-// response.code= the HTTP code (e.g. 200) as an Integer
-// response.content= the body of request as a single String
-// response.headers= the headers as an Array of Strings
+// response.url     = the actual url the request was sent to (including
+//                    parameters)
+// response.code    = the HTTP code (e.g. 200) as an Integer
+// response.content = the body of request as a single String
+// response.headers = the headers as an Array of Strings
 void HttpRequest::CallComplete(int http_code) {
   v8::Local<v8::Object> response = v8::Object::New();
+
   response->Set(v8::String::NewSymbol("url"),
                 v8::String::New(&url_[0], url_.length()));
   response->Set(v8::String::NewSymbol("code"),
                 v8::Integer::New(http_code));
   response->Set(v8::String::NewSymbol("content"),
                 v8::String::New(&buffer_[0], buffer_.size()));
+
   v8::Local<v8::Array> jsheaders = v8::Array::New(headers_.size());
   utils::StringList::iterator iter = headers_.begin();
+
   for (int i=0; iter != headers_.end(); ++iter, ++i) {
     const std::string& h = *iter;
     v8::Local<v8::String> jsh = v8::String::New(&h[0], h.length());
     jsheaders->Set(i, jsh);
   }
+
   response->Set(v8::String::NewSymbol("headers"), jsheaders);
   v8::Local<v8::Value> arg = response;
   utils::CallV8Function(obj(), "onComplete", 1, &arg);
 }
 
-// Call 'onTimeout' if it exists
+// Call 'onTimeout' if it exists.
 void HttpRequest::CallTimeout() {
   utils::CallV8Function(obj(), "onTimeout", 0, NULL);
 }
 
-// Call 'onError' if it exists with 'errdesc' as an argument
+// Call 'onError' if it exists with 'errdesc' as an argument.
 void HttpRequest::CallError(const std::string& errdesc) {
   v8::Local<v8::Value> errobj = v8::String::New(errdesc.c_str());
   utils::CallV8Function(obj(), "onError", 1, &errobj);
 }
 
-// === HttpRequest Static Functions ===
+// HttpRequest Static Functions...
 
-//virtual
+// virtual
 void HttpRequest::ParseConstructorArgs(v8::Handle<v8::Object> obj,
                                        const v8::Arguments& args) {
-  //  args[N] will return v8::Undefined if N is out of range
+  // args[N] will return v8::Undefined if N is out of range.
   v8::Handle<v8::Value> url = args[0];
   if (!url->IsUndefined() && url->IsString())
     obj->Set(v8::String::NewSymbol("url"), url);
+
   v8::Handle<v8::Value> params = args[1];
   if (!params->IsUndefined() && (params->IsObject() || params->IsArray()))
     obj->Set(v8::String::NewSymbol("params"), params);
+
   v8::Handle<v8::Value> headers = args[2];
   if (!headers->IsUndefined() && (headers->IsObject() || headers->IsArray()))
     obj->Set(v8::String::NewSymbol("headers"), headers);
 }
 
-//==============================================================================
 // Class HttpCurlEasy
 // Implements HttpMessengerInterface with libcurl
 class HttpCurlEasy : public HttpMessengerInterface
@@ -217,26 +219,29 @@ class HttpCurlEasy : public HttpMessengerInterface
     HttpRequest* request_;
     CURL* handle_;
   };
+
   typedef std::list<CurlRequest> RequestList;
   RequestList requests_;
 };
 
-// === HttpCurlEasy Globals ===
+// HttpCurlEasy Globals
 
 bool HttpCurlEasy::s_curl_initialized_ = false;
 const int HttpCurlEasy::s_timeout_secs_(5);
 
-// === HttpCurlEasy Functions ===
+// HttpCurlEasy Functions
 
 bool HttpCurlEasy::Initialize() {
   // Only call curl_global_init() once
   CURLcode res;
+
   if (s_curl_initialized_) {
     res = CURLE_OK;
   } else {
     res = curl_global_init(CURL_GLOBAL_SSL);
     s_curl_initialized_ = true;
   }
+
   return (res == CURLE_OK) ? true : false;
 }
 
@@ -244,23 +249,25 @@ bool HttpCurlEasy::Initialize() {
 // This implementation always processes all requests, so always returns 0
 int HttpCurlEasy::Update() {
   for (RequestList::iterator iter = requests_.begin();
-       iter != requests_.end();
-       ++iter) {
+       iter != requests_.end(); ++iter) {
     CurlRequest& curlreq = *iter;
     HttpRequest* request = curlreq.request_;
     CURL* handle = curlreq.handle_;
     CurlSendRequest(request, handle);
   }
+
   requests_.clear();
   return 0;  // no pending updates
 }
 
 CURL* HttpCurlEasy::CurlInit() {
   CURL* handle = curl_easy_init();
+
   if (handle == NULL) {
     LOG(ERROR) << "Error calling curl_easy_init.";
     utils::ThrowV8Exception("CurlInit() failed.");
   }
+
   return handle;
 }
 
@@ -272,6 +279,7 @@ void HttpCurlEasy::CurlCleanup(CURL* handle) {
 // Prepares a curl request to be sent, but does not issue it
 bool HttpCurlEasy::CurlSetupRequest(HttpRequest* request, CURL* handle) {
   CURLcode code;
+
   // Set the url, callback, timeout, and other options
   code = curl_easy_setopt(handle, CURLOPT_URL, request->GetUrl().c_str());
   if (code == CURLE_OK)
@@ -290,59 +298,71 @@ bool HttpCurlEasy::CurlSetupRequest(HttpRequest* request, CURL* handle) {
     LOG(WARNING) << "Error setting curl options: " << code;
     return false;
   }
+
   // Set headers defined by the request object
   utils::StringList headers = request->GetStringList("headers", ": ");
   if (headers.size() > 0) {
     struct curl_slist *curl_headers = NULL;
+
     for (utils::StringList::iterator iter = headers.begin();
-         iter != headers.end();
-         ++iter) {
+         iter != headers.end(); ++iter) {
       std::string h = *iter;
       if (h.find(':') == std::string::npos) {
         utils::ThrowV8Exception(std::string("Badly formatted header: ") + h);
         return false;
       }
+
       curl_headers = curl_slist_append(curl_headers, h.c_str());
     }
+
     CURLcode code = curl_easy_setopt(handle, CURLOPT_HTTPHEADER, curl_headers);
     if (code != CURLE_OK) {
       utils::ThrowV8Exception(std::string("Error setting curl headers."));
       return false;
     }
   }
+
   return true;
 }
 
 // Use curl to send the request.
 // BLOCKING! curl_easy_perform() blocks until a response is received
-//  or the request times out.
+// or the request times out.
 bool HttpCurlEasy::CurlSendRequest(HttpRequest* request, CURL* handle) {
   bool res = true;
   CURLcode code = curl_easy_perform(handle);
   long http_code = 0;
+
   curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &http_code);
+
   if (code != CURLE_OK) {
     if (code == CURLE_OPERATION_TIMEDOUT) {
       request->CallTimeout();
+
     } else if (code == CURLE_HTTP_RETURNED_ERROR) {
       // Will only get triggered if CURLOPT_FAILONERROR is set to 1
-      //  in CurlSetupRequest()
+      // in CurlSetupRequest()
       std::stringstream errstream;
       errstream << curl_easy_strerror(code) << ": " << http_code;
       request->CallError(errstream.str());
+
     } else if (code == CURLE_COULDNT_RESOLVE_HOST ||
                code == CURLE_COULDNT_CONNECT) {
       request->CallError(std::string(curl_easy_strerror(code)));
+
     } else {
       LOG(WARNING) << "Error in curl_easy_perform: "
                    << curl_easy_strerror(code)
                    << " (" << code << ")";
       request->CallError(std::string(curl_easy_strerror(code)));
     }
+
     res = false;
   }
+
   if (res)
     request->CallComplete(http_code);
+
   CurlCleanup(handle);
   return res;
 }
@@ -352,31 +372,38 @@ bool HttpCurlEasy::CurlSendRequest(HttpRequest* request, CURL* handle) {
 bool HttpCurlEasy::HttpGet(HttpRequest* request) {
   if (!request)
     return false;
+
   CURL* handle = CurlInit();
   if (!handle)
     return false;
-  //  Set parameter string
+
+  // Set parameter string
   std::string url = request->GetString("url");
   utils::StringList params = request->GetStringList("params", "=");
   std::string paramstr;
+
   if (url.find('?') == std::string::npos)
     paramstr = "?";
   else
     paramstr = "&";
+
   for (utils::StringList::iterator iter = params.begin();
-       iter != params.end();
-       ++iter) {
+       iter != params.end(); ++iter) {
     std::string p = *iter;
     if (iter != params.begin())
       paramstr += "&";
     paramstr += p;
   }
+
   // Append parameters to the url string
   url += paramstr;
   request->SetUrl(url);
-  bool res = CurlSetupRequest(request, handle);
+
+  if (!CurlSetupRequest(request, handle))
+    return false;
+
   requests_.push_back(CurlRequest(request, handle));
-  return res;
+  return true;
 }
 
 // Sets up the curl POST request and adds it to the request list.
@@ -384,43 +411,49 @@ bool HttpCurlEasy::HttpGet(HttpRequest* request) {
 bool HttpCurlEasy::HttpPost(HttpRequest* request) {
   if (!request)
     return false;
+
   CURL* handle = CurlInit();
   if (!handle)
     return false;
-  //  Set form data
+
+  // Set form data
   utils::StringList params = request->GetStringList("params", "=");
-  struct curl_httppost *formpost=NULL;
-  struct curl_httppost *lastptr=NULL;
+  struct curl_httppost *formpost = NULL;
+  struct curl_httppost *lastptr = NULL;
+
   for (utils::StringList::iterator iter = params.begin();
-       iter != params.end();
-       ++iter) {
+       iter != params.end(); ++iter) {
     std::string p = *iter;
     size_t sep = p.find('=');
     std::string pname = p.substr(0,sep);
     std::string pvalue = p.substr(sep+1);
+
     curl_formadd(&formpost, &lastptr,
                  CURLFORM_COPYNAME, pname.c_str(),
                  CURLFORM_COPYCONTENTS, pvalue.c_str(),
                  CURLFORM_END);
   }
+
   CURLcode code = curl_easy_setopt(handle, CURLOPT_HTTPPOST, formpost);
   if (code != CURLE_OK) {
     utils::ThrowV8Exception(std::string("Error setting curl form data."));
     return false;
   }
+
   std::string url = request->GetString("url");
   request->SetUrl(url);
-  bool res = CurlSetupRequest(request, handle);
+  if (!CurlSetupRequest(request, handle))
+    return false;
+
   requests_.push_back(CurlRequest(request, handle));
-  return res;
+  return true;
 }
 
-// === HttpCurlEasy Static Functions ===
+// HttpCurlEasy Static Functions
 
-//static
+// static
 size_t HttpCurlEasy::HttpWriteCallback(void *ptr, size_t size,
-                                         size_t count, void *data)
-{
+                                       size_t count, void *data) {
   // Unfortunately, no straightfowrard way to do typesafe params with libcurl
   HttpRequest* request = reinterpret_cast<HttpRequest*>(data);
   size_t bytes_received = size * count;
@@ -429,10 +462,9 @@ size_t HttpCurlEasy::HttpWriteCallback(void *ptr, size_t size,
   return count;
 }
 
-//static
+// static
 size_t HttpCurlEasy::HttpHeaderCallback(void *ptr, size_t size,
-                                          size_t count, void *data)
-{
+                                        size_t count, void *data) {
   // Unfortunately, no straightfowrard way to do typesafe params with libcurl
   HttpRequest* request = reinterpret_cast<HttpRequest*>(data);
   size_t bytes_received = size * count;
@@ -441,16 +473,15 @@ size_t HttpCurlEasy::HttpHeaderCallback(void *ptr, size_t size,
   return count;
 }
 
-//==============================================================================
 // Class Http
 
 Http::Http(Entd* entd, HttpMessengerInterface* messenger)
     : JSObjectWrapper<Http>(),
-      entd_(entd), messenger_(messenger) {
+      entd_(entd),
+      messenger_(messenger) {
 }
 
 Http::~Http() {
-  entd_->ClearNativeTimeout(timeout_);
   HttpRequest::CleanupTemplate();
   CleanupTemplate();
 }
@@ -462,6 +493,7 @@ bool Http::Initialize() {
     easy_messenger->Initialize();
     messenger_ = easy_messenger;
   }
+
   const int CURL_POLL_INTERVAL_MS = 500;
   timeout_ = entd_->SetNativeTimeout(Update, this, CURL_POLL_INTERVAL_MS);
 
@@ -470,7 +502,7 @@ bool Http::Initialize() {
 }
 
 // returns true if we should continue calling Update()
-//static
+// static
 bool Http::Update(void *data) {
   Http* jshttp = reinterpret_cast<Http*>(data);
   int pending = jshttp->messenger_->Update();
@@ -493,7 +525,7 @@ void Http::SetTemplateBindings(v8::Handle<v8::ObjectTemplate> template_object) {
                        v8::ReadOnly);
 }
 
-//==== local dispatch fucntions for Http template bindings ====
+// Local dispatch fucntions for Http template bindings.
 
 static bool dispatch_get_request(const v8::Arguments& args,
                                  Http*& jshttp, HttpRequest*& request) {
@@ -502,15 +534,18 @@ static bool dispatch_get_request(const v8::Arguments& args,
     utils::ThrowV8Exception("Method called on incorrect object type.");
     return false;
   }
+
   if (args.Length() < 1) {
     utils::ThrowV8Exception("Not enough parameters.");
     return false;
   }
+
   request = HttpRequest::GetFromArg(args, 0);
   if (!request) {
     utils::ThrowV8Exception("First argument must be a Request object.");
     return false;
   }
+
   return true;
 }
 
@@ -528,10 +563,12 @@ static v8::Handle<v8::Value> dispatch_HttpPost(const v8::Arguments& args) {
   Http* jshttp;
   HttpRequest* request;
   bool res = false;
+
   if (dispatch_get_request(args, jshttp, request)) {
     res = jshttp->GetMessenger()->HttpPost(request);
   }
+
   return res ? v8::True() : v8::False();
 }
 
-} // namespace entd
+}  // namespace entd
