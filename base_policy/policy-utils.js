@@ -12,9 +12,9 @@ entd.pkcs11.slots = {};
 
 entd.pkcs11.store =
 function store(slotId, label, type, data) {
-  var slot = entd.tpm.slots[slotId];
+  var slot = entd.pkcs11.slots[slotId];
   if (!slot)
-    slot = entd.tpm.slots[slotId] = {};
+    slot = entd.pkcs11.slots[slotId] = {};
 
   slot[type] = { label: label, data: data };
 }
@@ -319,9 +319,9 @@ function initiateCSR() {
   }
 
   // Hook up our callbacks.
-  r.onComplete = util.fwdp(this, "onCSRComplete");
-  r.onTimeout = util.fwdp(this, "onHTTPTimeout");
-  r.onError = util.fwdp(this, "onHTTPError");
+  r.onComplete = util.fwdp(this, "onCSRComplete_");
+  r.onTimeout = util.fwdp(this, "onHTTPTimeout_");
+  r.onError = util.fwdp(this, "onHTTPError_");
 
   // Fire off the POST request.
   this.info("POSTing to " + r.url);
@@ -329,7 +329,7 @@ function initiateCSR() {
 }
 
 // Called when a http request times out.
-Policy.Certificate.prototype.onHTTPTimeout =
+Policy.Certificate.prototype.onHTTPTimeout_ =
 function onHTTPTimeout(request) {
   this.error("HTTP Time out: " + request.description);
 }
@@ -384,7 +384,7 @@ function getCert_() {
 // other than a timeout.
 Policy.Certificate.prototype.onIssuanceComplete_ =
 function onIssuanceComplete(request, response) {
-  if (response.code != entd.http.STATUS_OK) {
+  if (response.code != entd.http.RESPONSE_OK) {
     this.error("HTTP error " + response.code + ": " + request.description);
     return;
   }
@@ -393,9 +393,9 @@ function onIssuanceComplete(request, response) {
   var cert = new entd.tpm.Certificate(response.content);
 
   // ...and store it in the TPM.
-  entd.pkcs11.store(this.slotId, this.label, "cert", cert);
+  entd.pkcs11.store(this.pkcs11slot, this.label, "cert", cert);
 
-  this.info("Certificate stored in slot: " + this.slotId);
+  this.info("Certificate stored in slot: " + this.pkcs11slot);
 }
 
 
@@ -478,7 +478,7 @@ function cb_listCerts(arg) {
       id: cert.id,
       label: cert.label,
       userVariables: cert.userVariables,
-      installed: cert.isInstalled(),
+      installed: cert.isInstalled() ? 1 : 0,
       status: cert.status,
     };
   }
@@ -635,6 +635,9 @@ function bind(obj, func) {
  */
 util.bindp =
 function bindp(obj, prop) {
+  if (typeof obj[prop] != "function")
+    throw new Error("Property is missing or not a function: " + prop);
+
   return util.bind(obj, obj[prop]);
 }
 
@@ -667,7 +670,7 @@ function bindp(obj, prop) {
 util.fwd =
 function fwd(obj, func) {
   return function(var_args) {
-    var args = Array.apply(arguments);
+    var args = Array.apply(null, arguments);
     args.unshift(this);
     func.apply(obj, args);
   }
@@ -692,6 +695,9 @@ function fwd(obj, func) {
  */
 util.fwdp =
 function fwdp(obj, prop) {
+  if (typeof obj[prop] != "function")
+    throw new Error("Property is missing or not a function: " + prop);
+
   return util.fwd(obj, obj[prop]);
 }
 

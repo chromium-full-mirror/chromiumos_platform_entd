@@ -190,7 +190,6 @@ void CallbackServer::OnRequest(struct evhttp_request* request) {
   evbuffer_remove(request->input_buffer, reinterpret_cast<void*>(body.get()),
                   length);
   body[length] = '\0';
-  LOG(INFO) << body.get();
 
   v8::HandleScope handle_scope;
 
@@ -224,6 +223,8 @@ void CallbackServer::OnRequest(struct evhttp_request* request) {
   // Append the callback prefix to the specified function name.
   v8::Local<v8::String> function_key = v8::String::Concat(
       v8::String::NewSymbol(kCallbackPrefix.c_str()), value->ToString());
+
+  LOG(INFO) << "Dispatching: " << *v8::String::Utf8Value(function_key);
 
   // Check the callbacks object for a matching function.
   value = callbacks_->Get(function_key);

@@ -73,7 +73,7 @@ function onLoad(manifest) {
 Policy.Certificate.prototype.parseCSR =
 function parseCSR(response) {
   // Scrape the result looking for a ReqID...
-  var ary = response.content.match(/ReqID=([^&]+)/);
+  var ary = response.content.match(/\WReqID=([^&]+)/i);
   if (!ary)
     throw "Unable to locate request id in CSR reply.";
 
