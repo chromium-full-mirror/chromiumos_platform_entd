@@ -17,29 +17,29 @@ function store(slotId, label, type, data) {
     slot = entd.pkcs11.slots[slotId] = {};
 
   slot[type] = { label: label, data: data };
-}
+};
 
 entd.tpm = new Object();
 
 entd.tpm.CSR =
 function TPMCSR(subject) {
   this.subject = subject;
-}
+};
 
 entd.tpm.CSR.prototype.toString =
 function CSRToString() {
-  return "entd.tpm.CSR: subject: " + this.subject;
-}
+  return 'entd.tpm.CSR: subject: ' + this.subject;
+};
 
 entd.tpm.Certificate =
 function TPMCertificate(bytes) {
   this.bytes = bytes;
-}
+};
 
 entd.tpm.Certificate.prototype.toString =
 function TPMCertToString() {
-  return "entd.tpm.Certificate: " + bytes;
-}
+  return 'entd.tpm.Certificate: ' + bytes;
+};
 
 entd.http.RESPONSE_OK = 200;
 
@@ -57,8 +57,8 @@ entd.http.RESPONSE_OK = 200;
  * @param {Object} manifest The extension manifest, as reported by entd.
  */
 function Policy(manifest) {
-  entd.syslog.info("Init: " + manifest.description);
-  entd.syslog.info("current user: " + entd.username);
+  entd.syslog.info('Init: ' + manifest.description);
+  entd.syslog.info('current user: ' + entd.username);
 
   // Certificate definitions to be populated later by this.addCertificate()
   this.certificates = {};
@@ -78,12 +78,12 @@ function Policy(manifest) {
   // The CSR definition can reference properties of the params object.  We
   // copy the user info there so that it can be substituted into the CSR fields.
   if (!entd.username)
-    throw new Error("Unable to determine current username");
+    throw new Error('Unable to determine current username');
 
   var ary = entd.username.match(/([^@]+)@(.*)/);
-  this.setVariable("userEmail", entd.username);
-  this.setVariable("userName", ary[1]);
-  this.setVariable("userDomain", ary[2]);
+  this.setVariable('userEmail', entd.username);
+  this.setVariable('userName', ary[1]);
+  this.setVariable('userDomain', ary[2]);
 
   this.callbacks = new Policy.Callbacks(this);
 }
@@ -101,7 +101,7 @@ function Policy(manifest) {
 Policy.prototype.setVariable =
 function setVariable(name, value) {
   this.variables_[util.toKey(name)] = value;
-}
+};
 
 /**
  * Get a variable for this policy.
@@ -120,7 +120,7 @@ function getVariable(name, opt_default) {
     return this.variables_[key];
 
   return defval;
-}
+};
 
 /**
  * Add a certificate definition to this policy.
@@ -134,7 +134,7 @@ function addCertificate(id, params) {
   var cert = new Policy.Certificate(this, id, params);
   this.certificates[util.toKey(id)] = cert;
   return cert;
-}
+};
 
 /**
  * Certificate Definition constructor
@@ -146,25 +146,25 @@ function addCertificate(id, params) {
  * The params object should be a plain JavaScript object with the following
  * properties:
  *
- * - "label": A string defining a human readable label that uniquely identifies
+ * - 'label': A string defining a human readable label that uniquely identifies
  *     this certificate.
  *
- * - "pkcs11slot": An integer defining the PKCS#11 slot identifier in which
+ * - 'pkcs11slot': An integer defining the PKCS#11 slot identifier in which
  *     to store the certificate and key matter.
  *
- * - "csr": An object defining the parameters of the Certificate Signing
+ * - 'csr': An object defining the parameters of the Certificate Signing
  *       Request.  The object may have the following properties:
- *     - "subject": A string continaing the subject for the CSR.
- *     - "url": A url pointing to where the CSR should be sent.  CSRs are
+ *     - 'subject': A string continaing the subject for the CSR.
+ *     - 'url': A url pointing to where the CSR should be sent.  CSRs are
  *         sent using the HTTP POST method.  Any variable references in the
  *         url are resolved before sending the request.
- *     - "post_params": An optional JavaScript object containing parameters
+ *     - 'post_params': An optional JavaScript object containing parameters
  *         that should be sent with the POST.  Variable references in the
  *         values will be resolved before sending the request.
  *
- * - "issue": An object defining the parameters of the Certificate issue
+ * - 'issue': An object defining the parameters of the Certificate issue
  *       request.  The object may have the following properties:
- *    - "url": A url pointing to where the Certificate issue request
+ *    - 'url': A url pointing to where the Certificate issue request
  *        should be sent.  Certificate issue requests are sent using the
  *        HTTP GET method.  Any variable references in the url are resolved
  *        before sending the request.
@@ -180,29 +180,29 @@ function PolicyCertificate(policy, id, params) {
   this.policy = policy;
   this.id = id;
 
-  util.ensureProperties(params, ["label", "pkcs11slot", "csr", "issuer"],
-                        "params");
+  util.ensureProperties(params, ['label', 'pkcs11slot', 'csr', 'issuer'],
+                        'params');
 
   this.label = params.label;
   this.pkcs11slot = params.pkcs11slot;
 
-  util.ensureProperties(params.csr, ["subject", "url"], "params.csr");
+  util.ensureProperties(params.csr, ['subject', 'url'], 'params.csr');
   this.csr = params.csr;
 
-  util.ensureProperties(params.issuer, ["url"], "params.issuer");
+  util.ensureProperties(params.issuer, ['url'], 'params.issuer');
   this.issuer = params.issuer;
 
   this.variables_ = util.clone(this.policy.variables_);
 
-  if ("variables" in params) {
+  if ('variables' in params) {
     for (var key in params.variables)
       this.setVariable(key, params.variables[key]);
   }
 
   this.userVariables = params.userVariables || {};
 
-  this.status = this.isInstalled() ? "Installed" : "Not Installed";
-}
+  this.status = this.isInstalled() ? 'Installed' : 'Not Installed';
+};
 
 /**
  * Get a variable for this certificate definition.
@@ -243,32 +243,32 @@ Policy.Certificate.prototype.getVariable = Policy.prototype.getVariable;
  */
 Policy.Certificate.prototype.replaceVars =
 function cert_replaceVars(str) {
-  return util.replaceVars(str, util.bindp(this, "getVariable"));
-}
+  return util.replaceVars(str, util.bindp(this, 'getVariable'));
+};
 
 /**
  * Log an information status message about this certificate definition.
  */
 Policy.Certificate.prototype.info =
-function info(str) { this.setStatus_("info", str) }
+function info(str) { this.setStatus_('info', str) };
 
 /**
  * Log a warning status message about this certificate definition.
  */
 Policy.Certificate.prototype.warn =
-function warn(str) { this.setStatus_("warn", str) }
+function warn(str) { this.setStatus_('warn', str) };
 
 /**
  * Log an error status message about this certificate definition.
  */
 Policy.Certificate.prototype.error =
-function error(str) { this.setStatus_("error", str) }
+function error(str) { this.setStatus_('error', str) };
 
 Policy.Certificate.prototype.setStatus_ =
 function setStatus_(type, str) {
-  this.status = type + ": " + str;
-  entd.syslog[type]("Certificate " + this.id + ": " + str);
-}
+  this.status = type + ': ' + str;
+  entd.syslog[type]('Certificate ' + this.id + ': ' + str);
+};
 
 /**
  * Determine if this certificate definition has been successfully installed.
@@ -279,91 +279,91 @@ function setStatus_(type, str) {
 Policy.Certificate.prototype.isInstalled =
 function isInstalled() {
   var slot = entd.pkcs11.slots[this.pkcs11slot];
-  return (slot && "cert" in slot && slot.cert.label == this.label)
-}
+  return (slot && 'cert' in slot && slot.cert.label == this.label)
+};
 
 /**
  * Initiate the CSR process for this certificate definition.
  */
 Policy.Certificate.prototype.initiateCSR =
 function initiateCSR() {
-  this.info("Initiating Certificate Signing Request");
+  this.info('Initiating Certificate Signing Request');
 
   // Set up a request object.
   var r = new entd.http.Request(this.replaceVars(this.csr.url));
 
   // We use this property in the callbacks to make log messages more useful.
-  r.description = "Certificate Signing Request";
+  r.description = 'Certificate Signing Request';
 
   // Stash this so that we can refer to it later in on onCSRComplete.
   r.certificate = this;
 
   // Get the subject from the definition and replace any variable references.
   var subject = this.replaceVars(this.csr.subject);
-  this.info("CSR Subject: " + subject);
+  this.info('CSR Subject: ' + subject);
 
   // Ask the TPM to make our CSR.
   var csr = new entd.tpm.CSR(subject);
 
   // Copy the CSR as a string to the environment.
-  this.setVariable("csr", csr.toString());
+  this.setVariable('csr', csr.toString());
 
   // Copy all of the POST parameters after replacing the variable references.
-  if ("post_params" in this.csr) {
+  if ('post_params' in this.csr) {
     r.params = [];
 
     for (var key in this.csr.post_params) {
       var value = this.replaceVars(this.csr.post_params[key]);
-      r.params.push(key + "=" + encodeURI(value));
+      r.params.push(key + '=' + encodeURI(value));
     }
   }
 
   // Hook up our callbacks.
-  r.onComplete = util.fwdp(this, "onCSRComplete_");
-  r.onTimeout = util.fwdp(this, "onHTTPTimeout_");
-  r.onError = util.fwdp(this, "onHTTPError_");
+  r.onComplete = util.fwdp(this, 'onCSRComplete_');
+  r.onTimeout = util.fwdp(this, 'onHTTPTimeout_');
+  r.onError = util.fwdp(this, 'onHTTPError_');
 
   // Fire off the POST request.
-  this.info("POSTing to " + r.url);
+  this.info('POSTing to ' + r.url);
   entd.http.POST(r);
-}
+};
 
 // Called when a http request times out.
 Policy.Certificate.prototype.onHTTPTimeout_ =
 function onHTTPTimeout(request) {
-  this.error("HTTP Time out: " + request.description);
-}
+  this.error('HTTP Time out: ' + request.description);
+};
 
 // Called when a http request errors out.
 Policy.Certificate.prototype.onHTTPError_ =
 function onHTTPError_(request, reason) {
-  this.error("Error sending request: " + reason + ": " + request.description);
-}
+  this.error('Error sending request: ' + reason + ': ' + request.description);
+};
 
 // Called when the CSR request completes with anything other than a timeout.
 Policy.Certificate.prototype.onCSRComplete_ =
 function onCSRComplete_(request, response) {
-  this.info("CSR completed with http status: " + response.code);
+  this.info('CSR completed with http status: ' + response.code);
 
   if (response.code != entd.http.RESPONSE_OK) {
-    this.error("HTTP error " + response.code + ": " + request.description);
+    this.error('HTTP error ' + response.code + ': ' + request.description);
     return;
   }
 
   try {
     this.parseCSR(response);
   } catch (ex) {
-    this.error("Error parsing request id: " + ex);
+    this.error('Error parsing request id: ' + ex);
     return;
   }
 
   this.getCert_();
-}
+};
 
 // Fetch a cert that was just created for us as the result of a CSR.
 Policy.Certificate.prototype.getCert_ =
 function getCert_() {
-  this.info("Getting Certificate");
+  this.info('Getting Certificate');
 
   var r = new entd.http.Request(this.replaceVars(this.issuer.url));
 
@@ -371,21 +371,21 @@ function getCert_() {
   r.certificate = this;
 
   // We use this property in the callbacks to make log messages more useful.
-  r.description = "Certificate Issue Request";
+  r.description = 'Certificate Issue Request';
 
-  r.onComplete = util.fwdp(this, "onIssuanceComplete_");
-  r.onTimeout = util.fwdp(this, "onHTTPTimeout_");
-  r.onError = util.fwdp(this, "onHTTPError_");
+  r.onComplete = util.fwdp(this, 'onIssuanceComplete_');
+  r.onTimeout = util.fwdp(this, 'onHTTPTimeout_');
+  r.onError = util.fwdp(this, 'onHTTPError_');
 
   entd.http.GET(r);
-}
+};
 
 // Called when the certificate-issue request completes with anything
 // other than a timeout.
 Policy.Certificate.prototype.onIssuanceComplete_ =
 function onIssuanceComplete(request, response) {
   if (response.code != entd.http.RESPONSE_OK) {
-    this.error("HTTP error " + response.code + ": " + request.description);
+    this.error('HTTP error ' + response.code + ': ' + request.description);
     return;
   }
 
@@ -393,10 +393,10 @@ function onIssuanceComplete(request, response) {
   var cert = new entd.tpm.Certificate(response.content);
 
   // ...and store it in the TPM.
-  entd.pkcs11.store(this.pkcs11slot, this.label, "cert", cert);
+  entd.pkcs11.store(this.pkcs11slot, this.label, 'cert', cert);
 
-  this.info("Certificate stored in slot: " + this.pkcs11slot);
-}
+  this.info('Certificate stored in slot: ' + this.pkcs11slot);
+};
 
 
 /**
@@ -410,8 +410,8 @@ function onIssuanceComplete(request, response) {
  * Policy implementors may add their own callbacks by extending this object,
  * as in...
  *
- *   Policy.Callbacks.prototype["cb:my_awesome_callback"] = function (arg) {
- *     return "I am awesome.";
+ *   Policy.Callbacks.prototype['cb:my_awesome_callback'] = function (arg) {
+ *     return 'I am awesome.';
  *   }
  *
  * Callbacks are not installed in the callback server by default.
@@ -428,7 +428,7 @@ function onIssuanceComplete(request, response) {
 Policy.Callbacks =
 function PolicyCallbacks(policy) {
   this.policy = policy;
-}
+};
 
 /**
  * Return information about the current policy.
@@ -436,15 +436,15 @@ function PolicyCallbacks(policy) {
  * This policy callback returns the policy description, according to the
  * extension manifest,and the current username.
  *
- * @return {Object} An object with "description" and "username" properties.
+ * @return {Object} An object with 'description' and 'username' properties.
  */
-Policy.Callbacks.prototype["cb:info"] =
+Policy.Callbacks.prototype['cb:info'] =
 function cb_info() {
   return Policy.CallbackSuccess({
    description: this.policy.manifest.description,
    username: entd.username,
   });
-}
+};
 
 /**
  * Return the list of certificate definitions.
@@ -455,20 +455,20 @@ function cb_info() {
  * Each returned certificate definition will be an object with the
  * following properties:
  *
- *   - "id" String identifier for the certificate definition.
- *   - "label" String label for the certificate definition.
- *   - "userVariables" Object continaing the variables that must be
+ *   - 'id' String identifier for the certificate definition.
+ *   - 'label' String label for the certificate definition.
+ *   - 'userVariables' Object continaing the variables that must be
  *       provided by the user.
- *   - "installed" Boolean indicating whether or not this certificate
+ *   - 'installed' Boolean indicating whether or not this certificate
  *       has been successfully installed.
- *   - "status" String containing the last status message for this
+ *   - 'status' String containing the last status message for this
  *       certificate definition.
  *
  * @return {Object} An object containing one property for each certificate
  *   definition.  Callers should assume the property names are opaque
  *   tokens.
  */
-Policy.Callbacks.prototype["cb:listCertificates"] =
+Policy.Callbacks.prototype['cb:listCertificates'] =
 function cb_listCerts(arg) {
   var rv = {};
 
@@ -484,7 +484,7 @@ function cb_listCerts(arg) {
   }
 
   return Policy.CallbackSuccess(rv);
-}
+};
 
 /**
  * Initiate a Certificate Signing Request.
@@ -494,8 +494,8 @@ function cb_listCerts(arg) {
  * installed, this will attempt to replace it.
  *
  * @param {Object} arg An object with the following properties:
- *  - "certificateId" A string identifying the certificate.
- *  - "variables" An object containing the user variables required for this
+ *  - 'certificateId' A string identifying the certificate.
+ *  - 'variables' An object containing the user variables required for this
  *      certificate.
  *
  * @return {Policy.CallbackSuccess} If successful.  The data will be
@@ -503,47 +503,47 @@ function cb_listCerts(arg) {
  * @return {Policy.CallbackError} If unsuccessful.  The data will be a
  *   human readable string containing the reason for the error.
  */
-Policy.Callbacks.prototype["cb:initiateCSR"] =
+Policy.Callbacks.prototype['cb:initiateCSR'] =
 function cb_initiateCSR(arg) {
   if (!arg)
-    return Policy.CallbackError("Missing arguments");
+    return Policy.CallbackError('Missing arguments');
 
   var cert = this.policy.certificates[util.toKey(arg.certificateId)];
   if (!cert)
-    return Policy.CallbackError("Unknown certificate: " + arg.certificateId);
+    return Policy.CallbackError('Unknown certificate: ' + arg.certificateId);
 
   if (cert.userVariables) {
     if (!arg.variables)
-      return Policy.CallbackError("Missing parameter: variables");
+      return Policy.CallbackError('Missing parameter: variables');
 
     for (name in cert.userVariables) {
       if (!(name in arg.variables))
-        return Policy.CallbackError("Missing certificate variable: " + name);
+        return Policy.CallbackError('Missing certificate variable: ' + name);
 
       cert.setVariable(name, String(arg.variables[name]));
     }
   }
 
   cert.initiateCSR();
-  return Policy.CallbackSuccess("Sending CSR for: " + cert.id + ": " +
+  return Policy.CallbackSuccess('Sending CSR for: ' + cert.id + ': ' +
                                 cert.label)
-}
+};
 
 /**
  * Return an object indicating that a callback succeeded.
  */
 Policy.CallbackSuccess =
 function CallbackSuccess(data) {
-  return { status: "success", data: data };
-}
+  return { status: 'success', data: data };
+};
 
 /**
  * Return an object indicating that a callback encountered an error.
  */
 Policy.CallbackError =
 function CallbackError(data) {
-  return { status: "error", data: data };
-}
+  return { status: 'error', data: data };
+};
 
 /**
  * Namespace for utility functions...
@@ -556,9 +556,9 @@ var util = new Object();
  *
  * Variables should be of the form %(name) or %FLAG(name).
  *
- * At the moment the only supported FLAG is "uri", which uri encodes the value
+ * At the moment the only supported FLAG is 'uri', which uri encodes the value
  * before placing it in the string.  For example, if the value of
- * vars["percent"] is "%", then %uri(percent) would become "%25".
+ * vars['percent'] is '%', then %uri(percent) would become '%25'.
  *
  * This function throws an error if an unknown variable is referenced or
  * an unknown FLAG is used.
@@ -570,28 +570,28 @@ var util = new Object();
 util.replaceVars =
 function replaceVars(str, vars) {
   function cb(m, flag, name) {
-    if (typeof vars == "function")
+    if (typeof vars == 'function')
       value = vars(name);
     else
       value = vars[name];
 
-    if (typeof value == "undefined")
-      throw new Error("replaceVars: Unknown variable name: " + name);
+    if (typeof value == 'undefined')
+      throw new Error('replaceVars: Unknown variable name: ' + name);
 
     if (!flag)
       return value;
 
     switch (flag) {
-      case "uri": return encodeURI(value);
+      case 'uri': return encodeURI(value);
 
       default:
-        throw new Error("replaceVars: Unknown flag: " + flag +
-                        ", while replacing variable: " + name);
+        throw new Error('replaceVars: Unknown flag: ' + flag +
+                        ', while replacing variable: ' + name);
     }
   }
 
   return str.replace(/%([a-z]*)\(([^\)]+)\)/g, cb);
-}
+};
 
 /**
  * Bind a function to an object.
@@ -600,7 +600,7 @@ function replaceVars(str, vars) {
  * any parameters.  For example...
  *
  *   var f = util.bind(window, window.alert);
- *   f("hello world");
+ *   f('hello world');
  *
  * This will create a new function f() which is an alias for window.alert().
  * This is especially useful for defining callbacks the should be invoked on
@@ -613,7 +613,7 @@ function replaceVars(str, vars) {
 util.bind =
 function bind(obj, func) {
   return function(var_args) { return func.apply(obj, arguments) }
-}
+};
 
 /**
  * Bind a function to an object, where the function is already a property
@@ -623,10 +623,10 @@ function bind(obj, func) {
  * parameter is a string that refers to a function property on the object.
  * For example:
  *
- *   var f = util.bindp(window, "alert");
- *   f("hello world");
+ *   var f = util.bindp(window, 'alert');
+ *   f('hello world');
  *
- * Compare this to the example in util.bind(), where "window" was mentioned
+ * Compare this to the example in util.bind(), where 'window' was mentioned
  * twice.
  *
  * @param  {Object} obj The object to bind to.
@@ -635,11 +635,11 @@ function bind(obj, func) {
  */
 util.bindp =
 function bindp(obj, prop) {
-  if (typeof obj[prop] != "function")
-    throw new Error("Property is missing or not a function: " + prop);
+  if (typeof obj[prop] != 'function')
+    throw new Error('Property is missing or not a function: ' + prop);
 
   return util.bind(obj, obj[prop]);
-}
+};
 
 /**
  * Forward a method from one object to another object.
@@ -660,7 +660,7 @@ function bindp(obj, prop) {
  *   request.onComplete = util.bind(obj, obj.onComplete);
  *   obj.onComplete = function(data) { ... }
  *
- * Then the onComplete() method would have been property applied to "obj",
+ * Then the onComplete() method would have been property applied to 'obj',
  * but the request object would have been lost.
  *
  * @param  {Object} obj The object to bind to.
@@ -674,7 +674,7 @@ function fwd(obj, func) {
     args.unshift(this);
     func.apply(obj, args);
   }
-}
+};
 
 /**
  * Forward a method from one object to another object.
@@ -683,10 +683,10 @@ function fwd(obj, func) {
  * parameter is a string that refers to a function property on the object.
  * For example:
  *
- *   request.onComplete = util.fwdp(obj, "onComplete");
+ *   request.onComplete = util.fwdp(obj, 'onComplete');
  *   obj.onComplete = function(request, data) { ... }
  *
- * Compare this to the example in util.bind(), where "obj" was mentioned
+ * Compare this to the example in util.bind(), where 'obj' was mentioned
  * twice.
  *
  * @param  {Object} obj The object to bind to.
@@ -695,18 +695,18 @@ function fwd(obj, func) {
  */
 util.fwdp =
 function fwdp(obj, prop) {
-  if (typeof obj[prop] != "function")
-    throw new Error("Property is missing or not a function: " + prop);
+  if (typeof obj[prop] != 'function')
+    throw new Error('Property is missing or not a function: ' + prop);
 
   return util.fwd(obj, obj[prop]);
-}
+};
 
 
 /**
  * Make a string safe to use as a key.
  *
  * When reading from a JavaScript object that is being used as a hash, it
- * it possible to clash with default properties (for example, "toString")
+ * it possible to clash with default properties (for example, 'toString')
  * in a way that may introduce bugs or security issues.
  *
  * Using util.toKey() and util.fromKey() can address this problem by ensuring
@@ -717,8 +717,8 @@ function fwdp(obj, prop) {
  */
 util.toKey =
 function toKey(str) {
-  return "key:" + str;
-}
+  return 'key:' + str;
+};
 
 /**
  * Recovers the underlying string from a key.
@@ -727,11 +727,11 @@ function toKey(str) {
  */
 util.fromKey =
 function fromKey(str) {
-  if (str.substr(0, 4) != "key:")
-    throw new Error("Not a key: " + str);
+  if (str.substr(0, 4) != 'key:')
+    throw new Error('Not a key: ' + str);
 
   return str.substr(4);
-}
+};
 
 /**
  * Perform a shallow copy of an object.
@@ -746,7 +746,7 @@ function fromKey(str) {
 util.clone =
 function clone(var_args) {
   if (!arguments.length)
-    throw new Error("util.clone: Missing argument");
+    throw new Error('util.clone: Missing argument');
 
   var rv = {};
   for (var i = 0; i < arguments.length; ++i) {
@@ -755,7 +755,7 @@ function clone(var_args) {
   }
 
   return rv;
-}
+};
 
 /**
  * Ensures that an object has a set of required properties.
@@ -771,12 +771,12 @@ function clone(var_args) {
  */
 util.ensureProperties =
 function ensureProperties(obj, names, opt_objname) {
-  msg = "Missing required property: ";
+  msg = 'Missing required property: ';
   if (opt_objname)
-    msg += opt_objname + "."
+    msg += opt_objname + '.'
 
   for (var i = 0; i < names.length; ++i) {
     if (!(names[i] in obj))
       throw new Error(msg + names[i]);
   }
-}
+};
