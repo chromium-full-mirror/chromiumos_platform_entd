@@ -37,7 +37,7 @@ function onLoad(manifest) {
         // attributes that will be used to render the input widget for
         // the variable.
         userVariables: {
-          password: { type: "password" }
+          password: { type: "password", label: "Password" }
         },
 
         // Parameters for the "Certificate Signing Request" request.
@@ -64,6 +64,45 @@ function onLoad(manifest) {
         }
       });
 
+  policy.addCertificate(
+      "vpn",
+      { // Human readable label associated with this cert in the TPM
+        label: "Virtual Private Network (VPN)",
+
+        // The pkcs#11 slot id to store the cert in.
+        pkcs11slot: "2",
+
+        // List of variables that the user may provide.  Value is a list of
+        // attributes that will be used to render the input widget for
+        // the variable.
+        userVariables: {
+          password: { type: "password", label: "Password" }
+        },
+
+        // Parameters for the "Certificate Signing Request" request.
+        csr: {
+          subject: "/C=US/ST=Texas/L=Dallas/O=Example Inc/" +
+              "OU=pcloadletter/CN=%(userName).corp.example.com/" +
+              "emailAddress=%(userEmail)",
+
+          // URL where we should send the CSR.
+          url: CERT_REQUEST_URL,
+
+          // HTTP POST parameters to use when submitting the request.
+          post_params: {
+            CertRequest: "%(csr)",
+            CertAttribute: "CertificateTemplate:VPNUser",
+            email: "%(userEmail)",
+            SAN: "upn=%(userName)@corp.example.com",
+          },
+        },
+
+        "issuer": {
+          // URL where we should present the CSR in order to get the cert.
+          url: CERT_ISSUE_URL,
+        }
+      });
+
   entd.callbackServer.start(policy.callbacks);
 }
 
@@ -77,5 +116,6 @@ function parseCSR(response) {
   if (!ary)
     throw "Unable to locate request id in CSR reply.";
 
+  this.info("Parsed request id: " + ary[1]);
   this.setVariable("requestId", ary[1]);
 }
