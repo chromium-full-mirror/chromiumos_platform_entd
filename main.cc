@@ -2,28 +2,63 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <base/command_line.h>
 #include <stdio.h>
 
-#include "base/logging.h"
+#include <string>
+
+#include <base/command_line.h>
+#include <base/logging.h>
+
 #include "entd/entd.h"
+#include "entd/extensions.h"
+#include "entd/utils.h"
 
 namespace switches {
-// Location of the policy file
-static const char *kManifest = "manifest";
-static const char *kPolicy = "policy";
+// Path to search for extensions; can contain ~ or env variables (e.g. ${HOME})
+static const char *kExtensionPath = "extension-path";
+// User Name
 static const char *kUsername = "username";
-static const char *kUtility = "utility";
+// Policy files
+static const char *kManifest = "manifest";
+static const char *kPolicy =   "policy";
+static const char *kUtility =  "utility";
 }
 
 int main(int argc, char** argv) {
   LOG(INFO) << "Starting entd";
+
+  std::string manifest, policy, utility;
+
   CommandLine::Init(argc, argv);
   CommandLine* cl = CommandLine::ForCurrentProcess();
-  std::string manifest = cl->GetSwitchValueASCII(switches::kManifest);
-  std::string policy = cl->GetSwitchValueASCII(switches::kPolicy);
-  std::string username = cl->GetSwitchValueASCII(switches::kUsername);
-  std::string utility = cl->GetSwitchValueASCII(switches::kUtility);
+  std::string base_extension_path
+      = cl->GetSwitchValueASCII(switches::kExtensionPath);
+  std::string username
+      = cl->GetSwitchValueASCII(switches::kUsername);
+
+  // Get file paths from a valid policy extension if it exists
+  std::string extension_path;
+  bool valid_policy = false;
+  if (!base_extension_path.empty()) {
+    valid_policy = entd::extensions::FindValidPolicy(base_extension_path,
+                                                     &extension_path);
+  }
+  if (valid_policy) {
+    policy = extension_path + "policy.js";
+    if (!entd::utils::FileExists(policy))
+      policy.clear();
+    manifest = extension_path + "manifest.json";
+    if (!entd::utils::FileExists(manifest))
+      manifest.clear();
+  }
+
+  // Command line switches for policy files override extension filepaths
+  if (cl->HasSwitch(switches::kPolicy))
+    policy = cl->GetSwitchValueASCII(switches::kPolicy);
+  if (cl->HasSwitch(switches::kManifest))
+    manifest = cl->GetSwitchValueASCII(switches::kManifest);
+  if (cl->HasSwitch(switches::kUtility))
+    utility = cl->GetSwitchValueASCII(switches::kUtility);
 
   entd::Entd d;
   d.Initialize();

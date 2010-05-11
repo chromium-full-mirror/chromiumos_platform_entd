@@ -4,9 +4,14 @@
 
 #include "entd/utils.h"
 
+#include <dirent.h>
 #include <fcntl.h>
-#include <iostream>
 #include <stdlib.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <wordexp.h>
+
+#include <iostream>
 
 #include <base/basictypes.h>
 #include <base/logging.h>
@@ -56,6 +61,51 @@ v8::Handle<v8::String> ReadFile(const std::string& name) {
   close(fd);
   return result;
 }
+
+std::vector<std::string> ReadDirectory(const std::string& path) {
+  std::vector<std::string> dirnames;
+  DIR *dirp = opendir(path.c_str());
+
+  if (dirp == NULL) {
+    LOG(WARNING) << "Unable to open directory: " << path;
+    return dirnames;
+  }
+
+  while (1) {
+    struct dirent *direntp = readdir(dirp);
+    if (direntp == NULL)
+      break;
+    std::string dirname(direntp->d_name);
+    if (dirname == "." || dirname == "..")
+      continue;
+    dirnames.push_back(dirname);
+  }
+
+  closedir(dirp);
+  return dirnames;
+}
+
+bool FileExists(const std::string& filepath) {
+  int file_access = access(filepath.c_str(), R_OK);
+  return (file_access == 0) ? true : false;
+}
+
+std::string ExpandFilePath(const std::string& path) {
+  std::string res;
+  wordexp_t path_exp;
+
+  wordexp(path.c_str(), &path_exp, 0);
+
+  if (path_exp.we_wordc > 0) {
+    res = std::string(path_exp.we_wordv[0]);
+  } else {
+    res = path;
+  }
+
+  wordfree(&path_exp);
+  return res;
+}
+
 
 std::string ValueAsUtf8String(v8::Handle<v8::Value> value) {
   v8::Local<v8::String> s = value->ToString();

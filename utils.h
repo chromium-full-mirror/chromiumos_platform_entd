@@ -7,6 +7,7 @@
 
 #include <list>
 #include <string>
+#include <vector>
 #include <v8.h>
 
 namespace entd {
@@ -25,6 +26,16 @@ const char* ToCString(const v8::String::Utf8Value& value);
 
 // Reads a file into a v8 string.
 v8::Handle<v8::String> ReadFile(const std::string& name);
+
+// Reads the contents of a directory into an array of file/dir names.
+std::vector<std::string> ReadDirectory(const std::string& path);
+
+// Returns true if a file exists and can be read.
+bool FileExists(const std::string& filepath);
+
+// Expands any environment variables, including ~ and ~user
+// Asumes that path is a single word.
+std::string ExpandFilePath(const std::string& path);
 
 // Convert a V8 Value to a std::string
 std::string ValueAsUtf8String(v8::Handle<v8::Value> value);

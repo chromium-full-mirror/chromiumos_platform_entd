@@ -37,6 +37,7 @@ def build():
       [os.path.join("${BUILD_DIR}", fn) for fn in
        ("callback_server.cc",
         "entd.cc",
+        "extensions.cc",
         "flimflam.cc",
         "http.cc",
         "main.cc",

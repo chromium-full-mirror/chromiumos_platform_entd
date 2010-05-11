@@ -78,6 +78,7 @@ greptest "--policy=test_data/print-manifest.js \
   "print-manifest.js"
 greptest "--policy=test_data/simple-utility.js \
   --utility=test_data/simple-utility.js" 'utility is set' "simple-utility.js"
+greptest "--extension-path=test_data/Extensions" '{"foo":1,"bar":2}'
 
 # Http tests.
 greptest "http-good.js" "HTTP COMPLETE"
