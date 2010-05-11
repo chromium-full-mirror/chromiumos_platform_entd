@@ -20,6 +20,7 @@
 namespace entd {
 
 class CallbackServer;
+class Flimflam;
 class Http;
 class NativeTimeout;
 class Syslog;
@@ -140,9 +141,10 @@ class Entd : public JSObjectWrapper<Entd> {
   std::vector<Timeout*> timeout_list_;
   std::map<uint32_t, NativeTimeout*> native_timeouts_;
 
+  scoped_ptr<CallbackServer> callback_server_;
+  scoped_ptr<Flimflam> flimflam_;
   scoped_ptr<Http> jshttp_;
   scoped_ptr<Syslog> jssyslog_;
-  scoped_ptr<CallbackServer> callback_server_;
   v8::Persistent<v8::Context> context_;
 
   DISALLOW_COPY_AND_ASSIGN(Entd);

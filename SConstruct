@@ -15,7 +15,14 @@ def build():
   env.AppendUnique(
     CCFLAGS=['-fPIC', '-fno-exceptions', '-Wall', '-Werror', '-ggdb'],
     LINKFLAGS=['-fPIC'],
-    LIBS=['base', 'rt', 'pthread', 'v8', 'event', 'curl'],
+    LIBS=['base',
+          'rt',
+          'pthread',
+          'v8',
+          'event',
+          'curl',
+          'chromeos',
+          'crosapi'],
   )
 
   env.Append(
@@ -23,13 +30,18 @@ def build():
     LINKFLAGS=['-L${V8_LIB}'],
    )
 
-  env.ParseConfig('pkg-config --cflags --libs libcurl')
+  env.ParseConfig('pkg-config --cflags --libs libcurl dbus-glib-1 libpcrecpp')
 
   end_program = env.Program(
       '${BUILD_DIR}/entd',
       [os.path.join("${BUILD_DIR}", fn) for fn in
-       ("main.cc", "entd.cc", "utils.cc", "http.cc", "syslog.cc",
-        "callback_server.cc")]
+       ("callback_server.cc",
+        "entd.cc",
+        "flimflam.cc",
+        "http.cc",
+        "main.cc",
+        "syslog.cc",
+        "utils.cc",)]
       )
 
   env.Install('${SYSROOT}/usr/sbin/', end_program)

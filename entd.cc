@@ -5,14 +5,16 @@
 #include "entd/entd.h"
 
 #include <event.h>
+#include <glib-object.h>
 #include <iostream>
 #include <stdio.h>
 #include <v8.h>
 
 #include "entd/callback_server.h"
-#include "entd/utils.h"
+#include "entd/flimflam.h"
 #include "entd/http.h"
 #include "entd/syslog.h"
+#include "entd/utils.h"
 
 namespace entd {
 
@@ -218,9 +220,11 @@ v8::Handle<v8::Value> dispatch_PrintLn(const v8::Arguments& args) {
 }
 
 Entd::Entd()
-    : jshttp_(NULL),  // Allocated after we are constructed.
-      jssyslog_(new Syslog()),
-      callback_server_(NULL) {
+    : callback_server_(NULL),
+      flimflam_(new Flimflam()),
+      jshttp_(NULL),  // Allocated after we are constructed.
+      jssyslog_(new Syslog()) {
+  ::g_type_init();
 }
 
 
@@ -272,6 +276,11 @@ bool Entd::Initialize() {
   // Build the entd object.
   JSObjectWrapper<Entd>::Initialize();
   v8::Handle<v8::Object> entd_object = obj();
+
+  // Build the flimflam object.
+  flimflam_->Initialize();
+  entd_object->Set(v8::String::NewSymbol("flimflam"),
+                   flimflam_->obj(), v8::ReadOnly);
 
   // Build the http object.
   jshttp_.reset(new Http(this, NULL));
