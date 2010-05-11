@@ -169,7 +169,7 @@ client.hideModal =
 function hideModal() {
   client.modal.style.top = '-100%';
   client.modal.cert = null;
-  setTimeout('client.modal.style.display = 'none'', 500);
+  setTimeout('client.modal.style.display = "none"', 500);
 };
 
 /**
