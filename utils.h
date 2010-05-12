@@ -24,6 +24,9 @@ void free(void *buf);
 // Extracts a C string from a V8 Utf8Value.
 const char* ToCString(const v8::String::Utf8Value& value);
 
+// Checks to see if the string contains only characters legal in a domain name
+bool CheckHostnameCharset(const std::string& str);
+
 // Reads a file into a std::string.
 std::string ReadFileToUtf8String(const std::string& name);
 

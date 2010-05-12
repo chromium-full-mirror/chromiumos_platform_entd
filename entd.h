@@ -65,6 +65,21 @@ class Entd : public JSObjectWrapper<Entd> {
     certificate_filename_ = cert_filename;
   }
 
+  bool SetHostname(const std::string& hostname) {
+    if (!CheckHostname(hostname)) {
+      LOG(ERROR) << "Invalid hostname: " << hostname;
+      return false;
+    }
+
+    LOG(INFO) << "Hostname set to: " << hostname;
+    hostname_ = hostname;
+    return true;
+  }
+
+  const std::string& GetHostname() {
+    return hostname_;
+  }
+
   static const char* GetClassName() { return "entd"; }
 
   // Bind functions / properties to the V8 template object
@@ -119,6 +134,10 @@ class Entd : public JSObjectWrapper<Entd> {
   // Returns false if the timeout doesn't exist
   virtual bool ClearNativeTimeout(uint32_t timeout_handle);
 
+  // Returns true if the hostname the the same as, or more specific than, the
+  // current hostname.  Always returns true if the hostname has not been set.
+  virtual bool CheckHostname(const std::string& new_hostname);
+
   // Loads JSON from a file using the JSON.parse() function from the current
   // context.
   virtual bool JsonParseFromFile(const std::string& filename,
@@ -153,6 +172,11 @@ class Entd : public JSObjectWrapper<Entd> {
   std::string policy_filename_;
   std::string csr_filename_;
   std::string certificate_filename_;
+
+  // Starts out as just the hostname portion of the username, but may be
+  // set to a subdomain of that by the manifest file.
+  std::string hostname_;
+  // The entire username: user@example.com
   std::string username_;
 
 

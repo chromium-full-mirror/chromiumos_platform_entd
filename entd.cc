@@ -196,6 +196,22 @@ v8::Handle<v8::Value> dispatch_ClearTimeout(const v8::Arguments& args) {
   return v8::True();
 }
 
+// Called by v8 when someone trys to read from entd.hostname
+v8::Handle<v8::Value> dispatch_GetHostname(v8::Local<v8::String> name,
+                                           const v8::AccessorInfo& info) {
+  Entd* entd = Entd::Unwrap(info.Holder());
+  return v8::String::New(entd->GetHostname().c_str());
+}
+
+// Called by v8 when someone trys to assign to entd.hostname
+void dispatch_SetHostname(v8::Local<v8::String> name,
+                          v8::Local<v8::Value> value,
+                          const v8::AccessorInfo& info) {
+  Entd* entd = Entd::Unwrap(info.Holder());
+  if (!entd->SetHostname(*v8::String::Utf8Value(value)))
+    utils::ThrowV8Exception("Invalid hostname");
+}
+
 // Called by v8 for the global object's print() method.
 v8::Handle<v8::Value> dispatch_Print(const v8::Arguments& args) {
   for (int i = 0; i < args.Length(); ++i) {
@@ -241,12 +257,16 @@ Entd::~Entd() {
 
 // Bind "setTimeout" and "clearTimeout" to the entd template object.
 void Entd::SetTemplateBindings(v8::Handle<v8::ObjectTemplate> template_object) {
-  template_object->Set(v8::String::New("setTimeout"),
+  template_object->Set(v8::String::NewSymbol("setTimeout"),
                        v8::FunctionTemplate::New(dispatch_SetTimeout),
                        v8::ReadOnly);
-  template_object->Set(v8::String::New("clearTimeout"),
+  template_object->Set(v8::String::NewSymbol("clearTimeout"),
                        v8::FunctionTemplate::New(dispatch_ClearTimeout),
                        v8::ReadOnly);
+
+  template_object->SetAccessor(v8::String::NewSymbol("hostname"),
+                               dispatch_GetHostname,
+                               dispatch_SetHostname);
 }
 
 bool Entd::Initialize() {
@@ -328,27 +348,50 @@ bool Entd::Run() {
 
   ConstructEntd();
 
-  // Make sure we're running on our context
+  // Make sure we're running on our context.
   v8::Context::Scope context_scope(context_);
 
+  // Temporary storage for the a generic value used in this function.
   v8::Handle<v8::Value> value;
+
+  value = context_->Global()->Get(v8::String::NewSymbol("entd"));
+  if (value.IsEmpty() || !value->IsObject()) {
+    LOG(ERROR) << "Global entd missing or not an object";
+    return false;
+  }
+
+  v8::Handle<v8::Object> entd = v8::Handle<v8::Object>::Cast(value);
+  entd->Set(v8::String::NewSymbol("username"),
+            v8::String::New(username_.c_str()));
+
+  size_t at_pos = username_.find("@");
+  if (at_pos == std::string::npos || at_pos == username_.length() - 1) {
+    LOG(ERROR) << "Can't determine hostname from username.";
+    return false;
+  }
+
+  if (!SetHostname(username_.substr(at_pos + 1))) {
+    LOG(ERROR) << "Unable to set host name.";
+    return false;
+  }
+
+  v8::Handle<v8::Object> manifest;
+
+  if (manifest_filename_.empty()) {
+    LOG(WARNING) << "No manifest file.";
+  } else {
+    if (!JsonParseFromFile(manifest_filename_, &value) || !value->IsObject()) {
+      LOG(ERROR) << "Error loading manifest file: " << manifest_filename_;
+      return false;
+    }
+
+    manifest = v8::Handle<v8::Object>::Cast(value);
+  }
 
   if (!utility_filename_.empty()) {
     LOG(INFO) << "Executing utility file: " << utility_filename_;
     if (!ExecuteFile(utility_filename_, &value)) {
       LOG(ERROR) << "Error in utility file.";
-      return false;
-    }
-  }
-
-  v8::Handle<v8::Value> manifest;
-
-  if (manifest_filename_.empty()) {
-    LOG(WARNING) << "No manifest file.";
-    manifest = v8::Null();
-  } else {
-    if (!JsonParseFromFile(manifest_filename_, &manifest)) {
-      LOG(ERROR) << "Error loading manifest file: " << manifest_filename_;
       return false;
     }
   }
@@ -365,19 +408,17 @@ bool Entd::Run() {
 
   LOG(INFO) << "Policy loaded.";
 
-  value = context_->Global()->Get(v8::String::NewSymbol("entd"));
-  if (value.IsEmpty() || !value->IsObject()) {
-    LOG(ERROR) << "Global entd missing or not an object";
-    return false;
-  }
-
-  v8::Handle<v8::Object> entd = v8::Handle<v8::Object>::Cast(value);
-  entd->Set(v8::String::NewSymbol("username"),
-            v8::String::New(username_.c_str()));
-
   if (entd->Has(v8::String::NewSymbol("onLoad"))) {
     v8::TryCatch try_catch;
-    value = utils::CallV8Function(entd, "onLoad", 1, &manifest);
+
+    v8::Handle<v8::Value> arg;
+    if (manifest.IsEmpty()) {
+      arg = v8::Null();
+    } else {
+      arg = manifest;
+    }
+
+    value = utils::CallV8Function(entd, "onLoad", 1, &arg);
     if (try_catch.HasCaught()) {
       // Failed due to V8 exception
       utils::ReportV8Exception(&try_catch);
@@ -483,6 +524,45 @@ bool Entd::ClearNativeTimeout(uint32_t handle) {
     return true;
   }
   return false;
+}
+
+bool Entd::CheckHostname(const string& new_hostname) {
+  if (hostname_.empty())
+    return utils::CheckHostnameCharset(new_hostname);
+
+  size_t new_len = new_hostname.length();
+  size_t current_len = hostname_.length();
+
+  if (new_len < current_len) {
+    // New hostname is shorter than the existing hostname, can't possibly
+    // be right.
+    return false;
+  }
+
+  size_t starts_at = new_len - current_len;
+
+  if (new_hostname.compare(starts_at, current_len, hostname_) != 0) {
+    // New host doesn't match existing one.
+    return false;
+  }
+
+  if (starts_at == 0) {
+    // New host and old host are exactly the same.
+    return true;
+  }
+
+  // Otherwise, the new hostname must more specific than the existing one.
+
+  if (starts_at < 2) {
+    // It takes at least two characters to be more specific (eg: add "a." to
+    // the existing hostname.)
+    return false;
+  }
+
+  if (new_hostname[starts_at - 1] != '.')
+    return false;
+
+  return utils::CheckHostnameCharset(new_hostname);
 }
 
 bool Entd::JsonParseFromFile(const string& filename,

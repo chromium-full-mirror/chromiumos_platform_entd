@@ -40,7 +40,8 @@ function greptest {
     args="--policy=test_data/$args"
   fi
 
-  local out=$($ENTD $args 2>&1)
+  local cmd="$ENTD $args"
+  local out=$($cmd 2>&1)
   local code=$?
 
   TESTS=$(($TESTS +1))
@@ -54,6 +55,8 @@ function greptest {
   if [ $? != 0 ]; then
     logfail "$name: pattern not found"
     if [ ! -z "$VERBOSE" ]; then
+      echo
+      echo $cmd
       echo
       echo "=== OUTPUT START"
       echo $out
@@ -71,6 +74,7 @@ greptest "bad-onload.js" 'throw "expected exception"'
 greptest "print-username.js" "username: $USERNAME"
 greptest "throw-exception.js" 'throw "goodbye world"'
 greptest "syslog.js" "entd.syslog.error"
+greptest "simple-hostname.js" "LOOKS OK"
 
 # Basic tests with longer command lines.
 greptest "--policy=test_data/print-manifest.js \

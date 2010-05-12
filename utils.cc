@@ -38,6 +38,16 @@ const char* ToCString(const v8::String::Utf8Value& value) {
   return *value ? *value : "<string conversion failed>";
 }
 
+bool CheckHostnameCharset(const std::string& str) {
+  for (std::string::const_iterator i = str.begin(); i < str.end(); ++i) {
+    if (!(isalnum(*i) || *i == '.' || *i == '-')) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 // Reads a file into a std::string.
 std::string ReadFileToUtf8String(const std::string& name) {
   std::string result;

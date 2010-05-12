@@ -47,6 +47,7 @@ int main(int argc, char** argv) {
     valid_policy = entd::extensions::FindValidPolicy(base_extension_path,
                                                      &extension_path);
   }
+
   if (valid_policy) {
     policy = extension_path + "policy.js";
     if (!entd::utils::FileExists(policy))
