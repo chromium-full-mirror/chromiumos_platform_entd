@@ -11,7 +11,7 @@
 
 #include <base/basictypes.h>
 #include <base/logging.h>
-#include "base/scoped_ptr.h"
+#include <base/scoped_ptr.h>
 #include <v8.h>
 
 #include "entd/js_object_wrapper.h"
@@ -25,6 +25,7 @@ class Http;
 class NativeTimeout;
 class Syslog;
 class Timeout;
+class Pkcs11;
 
 class Entd : public JSObjectWrapper<Entd> {
  public:
@@ -39,18 +40,29 @@ class Entd : public JSObjectWrapper<Entd> {
   }
 
   void SetUtilityFile(const std::string& filename) {
-    LOG(INFO) << "Utility file set to: " << filename;
+    LOG(INFO) << "Utility file set to: '" << filename << "'";
     utility_filename_ = filename;
   }
 
   void SetManifestFile(const std::string& filename) {
-    LOG(INFO) << "Manifest file set to: " << filename;
+    LOG(INFO) << "Manifest file set to: '" << filename << "'";
     manifest_filename_ = filename;
   }
 
   void SetPolicyFile(const std::string& filename) {
-    LOG(INFO) << "Policy file set to: " << filename;
+    LOG(INFO) << "Policy file set to: '" << filename << "'";
     policy_filename_ = filename;
+  }
+
+  // If either of these are non-empty,
+  // a test Pkcs11CertificateHandler will be built and passed to Pkcs11()
+  // instead of the default handler.
+  void SetCertificateFiles(const std::string& csr_filename,
+                           const std::string& cert_filename) {
+    LOG(INFO) << "CSR file set to: '" << csr_filename << "'";
+    LOG(INFO) << "Certificate file set to: '" << cert_filename << "'";
+    csr_filename_ = csr_filename;
+    certificate_filename_ = cert_filename;
   }
 
   static const char* GetClassName() { return "entd"; }
@@ -59,8 +71,12 @@ class Entd : public JSObjectWrapper<Entd> {
   static void SetTemplateBindings(
       v8::Handle<v8::ObjectTemplate> template_object);
 
-  // Initialize the Entd object, call this first.
+  // Immediate Initializations (before parameters are set)
   virtual bool Initialize();
+
+  // Construct the Entd object, called at the beggining of Run()
+  // (After setting parameters (e.g.SetCertificateFiles()) )
+  virtual bool ConstructEntd();
 
   // Load the policy script and start processing events.
   virtual bool Run();
@@ -135,7 +151,10 @@ class Entd : public JSObjectWrapper<Entd> {
   std::string utility_filename_;
   std::string manifest_filename_;
   std::string policy_filename_;
+  std::string csr_filename_;
+  std::string certificate_filename_;
   std::string username_;
+
 
   uint32_t timeout_sequence_;
   std::vector<Timeout*> timeout_list_;
@@ -143,8 +162,9 @@ class Entd : public JSObjectWrapper<Entd> {
 
   scoped_ptr<CallbackServer> callback_server_;
   scoped_ptr<Flimflam> flimflam_;
-  scoped_ptr<Http> jshttp_;
-  scoped_ptr<Syslog> jssyslog_;
+  scoped_ptr<Http> http_;
+  scoped_ptr<Syslog> syslog_;
+  scoped_ptr<Pkcs11> pkcs11_;
   v8::Persistent<v8::Context> context_;
 
   DISALLOW_COPY_AND_ASSIGN(Entd);

@@ -13,6 +13,7 @@
 #include "entd/callback_server.h"
 #include "entd/flimflam.h"
 #include "entd/http.h"
+#include "entd/pkcs11.h"
 #include "entd/syslog.h"
 #include "entd/utils.h"
 
@@ -222,8 +223,7 @@ v8::Handle<v8::Value> dispatch_PrintLn(const v8::Arguments& args) {
 Entd::Entd()
     : callback_server_(NULL),
       flimflam_(new Flimflam()),
-      jshttp_(NULL),  // Allocated after we are constructed.
-      jssyslog_(new Syslog()) {
+      syslog_(new Syslog()) {
   ::g_type_init();
 }
 
@@ -258,6 +258,10 @@ bool Entd::Initialize() {
   event_init();
   LOG(INFO) << "Initialized libevent " << event_get_version();
 
+  return true;
+}
+
+bool Entd::ConstructEntd() {
   v8::HandleScope handle_scope;
 
   v8::Handle<v8::ObjectTemplate> global_template = v8::ObjectTemplate::New();
@@ -283,21 +287,35 @@ bool Entd::Initialize() {
                    flimflam_->obj(), v8::ReadOnly);
 
   // Build the http object.
-  jshttp_.reset(new Http(this, NULL));
-  jshttp_->Initialize();
+  http_.reset(new Http(this, NULL));
+  http_->Initialize();
   entd_object->Set(v8::String::NewSymbol("http"),
-                   jshttp_->obj(), v8::ReadOnly);
+                   http_->obj(), v8::ReadOnly);
 
   // Build the syslog object.
-  jssyslog_->Initialize();
+  syslog_->Initialize();
   entd_object->Set(v8::String::NewSymbol("syslog"),
-                   jssyslog_->obj(), v8::ReadOnly);
+                   syslog_->obj(), v8::ReadOnly);
 
   // Build the callbackServer object.
   callback_server_.reset(new CallbackServer(this));
   callback_server_->Initialize();
   entd_object->Set(v8::String::NewSymbol("callbackServer"),
                    callback_server_->obj(), v8::ReadOnly);
+
+  // Setup the pkcs11 handlers
+  Pkcs11CertificateHandler* cert_handler(NULL);  // NULL indicates default
+  if (!csr_filename_.empty() || !certificate_filename_.empty()) {
+    cert_handler = new Pkcs11CertificateHandlerLocalFile(
+        csr_filename_, certificate_filename_);
+  }
+  Pkcs11SlotHandler* slot_handler(NULL);  // NULL indicates default
+
+  // Build the pkcs11 object
+  pkcs11_.reset(new Pkcs11(cert_handler, slot_handler));
+  pkcs11_->Initialize();
+  entd_object->Set(v8::String::New("pkcs11"),
+                   pkcs11_->obj(), v8::ReadOnly);
 
   // Bind entd to the global object.
   global->Set(v8::String::New("entd"), entd_object, v8::ReadOnly);
@@ -307,6 +325,8 @@ bool Entd::Initialize() {
 
 bool Entd::Run() {
   v8::HandleScope handle_scope;
+
+  ConstructEntd();
 
   // Make sure we're running on our context
   v8::Context::Scope context_scope(context_);

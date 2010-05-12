@@ -11,10 +11,9 @@
 #include <list>
 #include <vector>
 
+#include <base/basictypes.h>
+#include <base/logging.h>
 #include <curl/curl.h>
-
-#include "base/basictypes.h"
-#include "base/logging.h"
 
 #include "entd/utils.h"
 

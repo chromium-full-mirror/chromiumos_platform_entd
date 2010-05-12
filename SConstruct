@@ -41,6 +41,7 @@ def build():
         "flimflam.cc",
         "http.cc",
         "main.cc",
+        "pkcs11.cc",
         "syslog.cc",
         "utils.cc",)]
       )

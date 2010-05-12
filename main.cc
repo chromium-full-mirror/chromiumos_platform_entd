@@ -22,7 +22,10 @@ static const char *kUsername = "username";
 static const char *kManifest = "manifest";
 static const char *kPolicy =   "policy";
 static const char *kUtility =  "utility";
-}
+// Certificate files
+static const char *kCsrFile = "csr-file";
+static const char *kCertFile = "cert-file";
+}  // namespace switches
 
 int main(int argc, char** argv) {
   LOG(INFO) << "Starting entd";
@@ -33,8 +36,9 @@ int main(int argc, char** argv) {
   CommandLine* cl = CommandLine::ForCurrentProcess();
   std::string base_extension_path
       = cl->GetSwitchValueASCII(switches::kExtensionPath);
-  std::string username
-      = cl->GetSwitchValueASCII(switches::kUsername);
+  std::string username = cl->GetSwitchValueASCII(switches::kUsername);
+  std::string csr_file = cl->GetSwitchValueASCII(switches::kCsrFile);
+  std::string cert_file = cl->GetSwitchValueASCII(switches::kCertFile);
 
   // Get file paths from a valid policy extension if it exists
   std::string extension_path;
@@ -74,6 +78,9 @@ int main(int argc, char** argv) {
 
   if (!policy.empty())
     d.SetPolicyFile(policy);
+
+  if (!csr_file.empty() || !cert_file.empty())
+    d.SetCertificateFiles(csr_file, cert_file);
 
   bool rv = d.Run();
   LOG(INFO) << "Exiting entd";

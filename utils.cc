@@ -38,13 +38,15 @@ const char* ToCString(const v8::String::Utf8Value& value) {
   return *value ? *value : "<string conversion failed>";
 }
 
-// Reads a file into a v8 string.
-v8::Handle<v8::String> ReadFile(const std::string& name) {
-  v8::Handle<v8::String> result = v8::Handle<v8::String>();
+// Reads a file into a std::string.
+std::string ReadFileToUtf8String(const std::string& name) {
+  std::string result;
 
   int fd = open(name.c_str(), O_RDONLY);
-  if (fd == -1)
+  if (fd == -1) {
+    LOG(WARNING) << "Unable to read file: " << name;
     return result;
+  }
 
   struct stat buf;
   fstat(fd, &buf);
@@ -53,12 +55,19 @@ v8::Handle<v8::String> ReadFile(const std::string& name) {
     char* chars = new char[buf.st_size + 1];
     chars[buf.st_size] = '\0';
     if (read(fd, &chars[0], buf.st_size) == buf.st_size)
-      result = v8::String::New(chars, buf.st_size);
-
+      result = std::string(chars, buf.st_size);
     delete[] chars;
   }
 
   close(fd);
+  return result;
+}
+
+// Reads a file into a v8 string.
+v8::Handle<v8::String> ReadFile(const std::string& name) {
+  std::string filestr = ReadFileToUtf8String(name);
+  v8::Handle<v8::String> result =
+      v8::String::New(filestr.c_str(), filestr.size());
   return result;
 }
 
@@ -105,7 +114,6 @@ std::string ExpandFilePath(const std::string& path) {
   wordfree(&path_exp);
   return res;
 }
-
 
 std::string ValueAsUtf8String(v8::Handle<v8::Value> value) {
   v8::Local<v8::String> s = value->ToString();

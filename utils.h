@@ -24,7 +24,10 @@ void free(void *buf);
 // Extracts a C string from a V8 Utf8Value.
 const char* ToCString(const v8::String::Utf8Value& value);
 
-// Reads a file into a v8 string.
+// Reads a file into a std::string.
+std::string ReadFileToUtf8String(const std::string& name);
+
+// Reads a file into a V8 String.
 v8::Handle<v8::String> ReadFile(const std::string& name);
 
 // Reads the contents of a directory into an array of file/dir names.

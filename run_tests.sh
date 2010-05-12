@@ -86,6 +86,21 @@ greptest "http-badhost.js" "HTTP ERROR: Couldn't resolve"
 greptest "http-badrequest.js" "First argument must be a Request object"
 greptest "http-redirect.js" "HTTP COMPLETE"
 
+# Pkcs11 tests.
+greptest "pkcs11.js" \
+'{"slot1":{"label":"slot1","keyIdentifier":"key1",'\
+'"publicKey":"<This is a public key>",'\
+'"certificate":{"content":"<Certificate content=content1 />"}},'\
+'"slot2":{"label":"slot2","keyIdentifier":"key2",'\
+'"publicKey":"<This is a public key>",'\
+'"certificate":{"content":"<Certificate content=content2 />"}}}'
+greptest 'pkcs11-cert.js '\
+'--csr-file=test_data/csr_test.pem --cert-file=test_data/cert_test.pem' \
+'{"slot1":{"label":"slot1",'\
+'"certificate":{"content":"-----BEGIN CERTIFICATE-----' \
+"pkcs11-cert.js"
+greptest "pkcs11-remove.js" "Slot1: undefined"
+
 # Slightly longer running tests.
 greptest "settimeout.js" "string timeout function timeout"
 greptest "cleartimeout.js" "starting timeouts function timeout"
