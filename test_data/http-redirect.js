@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-var url = "www.google.com";
+var host = "www.google.com";
 var params = new Array("name=me");
 var headers = new Array("foo: bar");
 
-var req = new entd.http.Request(url, params, headers);
+var req = new entd.http.Request(host, "", params, headers);
 req.onComplete = function complete(response)
 {
   println("HTTP COMPLETE. URL=" + response.url +

@@ -2,11 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-var url = "bad.url";
-var params = new Array("name=me");
-var headers = new Array("foo: bar");
+// Pick a name that won't get denied, but that doesn't actually exist, and
+// make sure it fails.
 
-var req = new entd.http.Request(url, params, headers);
+var req = new entd.http.Request("not-a-real-host.google.com");
 req.onComplete = function complete(response)
 {
   println("HTTP COMPLETE. URL=" + response.url +

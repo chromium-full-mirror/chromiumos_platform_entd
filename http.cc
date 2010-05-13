@@ -37,6 +37,8 @@
 
 namespace entd {
 
+static const std::string kHttpsScheme = "https://";
+
 // Class HttpRequest...
 
 class HttpRequest : public JSObjectWrapper<HttpRequest> {
@@ -59,6 +61,7 @@ class HttpRequest : public JSObjectWrapper<HttpRequest> {
 
   // Interface for HTTP (HttpMessengerInterface class)
   void SetUrl(const std::string& url) { url_ = url; }
+
   std::string GetUrl() { return url_; }
   void AppendBuffer(const char* data, size_t bytes);
   void AppendHeader(const std::string& header);
@@ -174,17 +177,21 @@ void HttpRequest::CallError(const std::string& errdesc) {
 void HttpRequest::ParseConstructorArgs(v8::Handle<v8::Object> obj,
                                        const v8::Arguments& args) {
   // args[N] will return v8::Undefined if N is out of range.
-  v8::Handle<v8::Value> url = args[0];
-  if (!url->IsUndefined() && url->IsString())
-    obj->Set(v8::String::NewSymbol("url"), url);
+  v8::Handle<v8::Value> value = args[0];
+  if (!value->IsUndefined() && value->IsString())
+    obj->Set(v8::String::NewSymbol("hostname"), value);
 
-  v8::Handle<v8::Value> params = args[1];
-  if (!params->IsUndefined() && (params->IsObject() || params->IsArray()))
-    obj->Set(v8::String::NewSymbol("params"), params);
+  value = args[1];
+  if (!value->IsUndefined() && value->IsString())
+    obj->Set(v8::String::NewSymbol("path"), value);
 
-  v8::Handle<v8::Value> headers = args[2];
-  if (!headers->IsUndefined() && (headers->IsObject() || headers->IsArray()))
-    obj->Set(v8::String::NewSymbol("headers"), headers);
+  value = args[2];
+  if (!value->IsUndefined() && (value->IsObject() || value->IsArray()))
+    obj->Set(v8::String::NewSymbol("params"), value);
+
+  value = args[3];
+  if (!value->IsUndefined() && (value->IsObject() || value->IsArray()))
+    obj->Set(v8::String::NewSymbol("headers"), value);
 }
 
 // Class HttpCurlEasy
@@ -378,26 +385,28 @@ bool HttpCurlEasy::HttpGet(HttpRequest* request) {
     return false;
 
   // Set parameter string
-  std::string url = request->GetString("url");
   utils::StringList params = request->GetStringList("params", "=");
-  std::string paramstr;
+  if (params.size()) {
+    std::string paramstr;
 
-  if (url.find('?') == std::string::npos)
-    paramstr = "?";
-  else
-    paramstr = "&";
+    for (utils::StringList::iterator iter = params.begin();
+         iter != params.end(); ++iter) {
+      std::string p = *iter;
+      if (iter != params.begin())
+        paramstr += "&";
+      paramstr += p;
+    }
 
-  for (utils::StringList::iterator iter = params.begin();
-       iter != params.end(); ++iter) {
-    std::string p = *iter;
-    if (iter != params.begin())
-      paramstr += "&";
-    paramstr += p;
+    // Append parameters to the url string
+    std::string url = request->GetUrl();
+    if (url.find('?') == std::string::npos) {
+      url.append("?");
+    } else {
+      url.append("&");
+    }
+
+    request->SetUrl(url + paramstr);
   }
-
-  // Append parameters to the url string
-  url += paramstr;
-  request->SetUrl(url);
 
   if (!CurlSetupRequest(request, handle))
     return false;
@@ -440,8 +449,6 @@ bool HttpCurlEasy::HttpPost(HttpRequest* request) {
     return false;
   }
 
-  std::string url = request->GetString("url");
-  request->SetUrl(url);
   if (!CurlSetupRequest(request, handle))
     return false;
 
@@ -545,9 +552,9 @@ bool Http::HttpPost(HttpRequest* request) {
 // Local dispatch fucntions for Http template bindings.
 
 static bool CheckRequestArgs(const v8::Arguments& args,
-                             Http*& jshttp, HttpRequest*& request) {
-  jshttp = Http::Unwrap(args.This());
-  if (!jshttp) {
+                             Http*& http, HttpRequest*& request) {
+  http = Http::Unwrap(args.This());
+  if (!http) {
     utils::ThrowV8Exception("Method called on incorrect object type.");
     return false;
   }
@@ -563,27 +570,43 @@ static bool CheckRequestArgs(const v8::Arguments& args,
     return false;
   }
 
+  std::string hostname = request->GetString("hostname");
+  if (!http->GetEntd()->CheckHostname(hostname)) {
+    utils::ThrowV8Exception("Invalid hostname");
+    return false;
+  }
+
+  std::string path = request->GetString("path");
+
+  if (path.length() == 0) {
+    path = "/";
+  } else if (path[0] != '/') {
+    path = "/" + path;
+  }
+
+  request->SetUrl(kHttpsScheme + hostname + path);
+
   return true;
 }
 
 static v8::Handle<v8::Value> dispatch_HttpGet(const v8::Arguments& args) {
-  Http* jshttp;
+  Http* http;
   HttpRequest* request;
   bool res = false;
 
-  if (CheckRequestArgs(args, jshttp, request))
-    res = jshttp->HttpGet(request);
+  if (CheckRequestArgs(args, http, request))
+    res = http->HttpGet(request);
 
   return res ? v8::True() : v8::False();
 }
 
 static v8::Handle<v8::Value> dispatch_HttpPost(const v8::Arguments& args) {
-  Http* jshttp;
+  Http* http;
   HttpRequest* request;
   bool res = false;
 
-  if (CheckRequestArgs(args, jshttp, request))
-    res = jshttp->HttpPost(request);
+  if (CheckRequestArgs(args, http, request))
+    res = http->HttpPost(request);
 
   return res ? v8::True() : v8::False();
 }

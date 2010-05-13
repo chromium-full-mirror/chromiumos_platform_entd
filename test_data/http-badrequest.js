@@ -2,12 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-var req;
-foo = entd.http.GET;
-//foo(req);
-//entd.http.GET();
+// Pass a bad request object to GET() and make sure it bombs.
+
 entd.onLoad =
 function onLoad(manifest)
 {
-  entd.http.GET(req);
+  entd.http.GET({});
 }

@@ -4,9 +4,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-USERNAME="user@example.com"
-ENTD="../../scripts/run_32bit.sh out/i686-pc-linux-gnu/entd -- \
---username=$USERNAME "
+USERNAME="user@google.com"
+ENTD="../../scripts/run_32bit.sh out/i686-pc-linux-gnu/entd --"
 
 # If non-zero, print test output on failure
 VERBOSE=1
@@ -40,7 +39,7 @@ function greptest {
     args="--policy=test_data/$args"
   fi
 
-  local cmd="$ENTD $args"
+  local cmd="$ENTD --username=$USERNAME $args"
   local out=$($cmd 2>&1)
   local code=$?
 
@@ -87,6 +86,7 @@ greptest "--extension-path=test_data/Extensions" '{"foo":1,"bar":2}'
 # Http tests.
 greptest "http-good.js" "HTTP COMPLETE"
 greptest "http-badhost.js" "HTTP ERROR: Couldn't resolve"
+greptest "http-evilhost.js" "Invalid hostname"
 greptest "http-badrequest.js" "First argument must be a Request object"
 greptest "http-redirect.js" "HTTP COMPLETE"
 

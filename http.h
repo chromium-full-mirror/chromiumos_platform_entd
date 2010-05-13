@@ -32,6 +32,7 @@ class HttpMessengerInterface {
   // If post==true, use HTTP POST instead of HTTP GET
   virtual bool HttpGet(HttpRequest* request) = 0;
   virtual bool HttpPost(HttpRequest* request) = 0;
+
  private:
   DISALLOW_COPY_AND_ASSIGN(HttpMessengerInterface);
 };
@@ -48,6 +49,8 @@ class Http : public JSObjectWrapper<Http> {
   virtual ~Http();
   virtual bool Initialize();
   static const char* GetClassName() { return "http"; }
+
+  Entd* GetEntd() { return entd_; };
 
   // Bind functions / properties to the V8 template object:
   //  "GET", "POST", and "Request"
