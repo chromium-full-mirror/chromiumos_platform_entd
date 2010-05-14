@@ -7,10 +7,6 @@
 // 802.11x.  Eventually it will also show how to configure the network to use
 // that policy.
 
-const BASE_URL="localhost:8080/";
-const CERT_REQUEST_URL = BASE_URL + "csr";
-const CERT_ISSUE_URL = BASE_URL + "issue?id=%uri(requestId)";
-
 var policy = null;
 
 entd.onLoad =
@@ -46,8 +42,10 @@ function onLoad(manifest) {
               "OU=pcloadletter/CN=%(userName).corp.example.com/" +
               "emailAddress=%(userEmail)",
 
-          // URL where we should send the CSR.
-          url: CERT_REQUEST_URL,
+          // Used to build the URL where we should send the CSR.
+          host: "localhost",
+          port: 4343,
+          path: "/csr",
 
           // HTTP POST parameters to use when submitting the request.
           post_params: {
@@ -59,8 +57,11 @@ function onLoad(manifest) {
         },
 
         "issuer": {
-          // URL where we should present the CSR in order to get the cert.
-          url: CERT_ISSUE_URL,
+          // Used to build the URL where we should present the CSR in order
+          // to get the cert.
+          host: "localhost",
+          port: 4343,
+          path: "/issue?id=%(requestId)",
         }
       });
 
@@ -85,8 +86,10 @@ function onLoad(manifest) {
               "OU=pcloadletter/CN=%(userName).corp.example.com/" +
               "emailAddress=%(userEmail)",
 
-          // URL where we should send the CSR.
-          url: CERT_REQUEST_URL,
+          // Used to build the URL where we should send the CSR.
+          host: "localhost",
+          port: 4343,
+          path: "/csr",
 
           // HTTP POST parameters to use when submitting the request.
           post_params: {
@@ -98,8 +101,11 @@ function onLoad(manifest) {
         },
 
         "issuer": {
-          // URL where we should present the CSR in order to get the cert.
-          url: CERT_ISSUE_URL,
+          // Used to build the URL where we should present the CSR in order
+          // to get the cert.
+          host: "localhost",
+          port: 4343,
+          path: "/issue?id=%(requestId)",
         }
       });
 

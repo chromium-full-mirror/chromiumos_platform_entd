@@ -3,11 +3,16 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import BaseHTTPServer
+from BaseHTTPServer import HTTPServer
+from OpenSSL import SSL
+from SimpleHTTPServer import SimpleHTTPRequestHandler
+from SocketServer import BaseServer
+
 import cgi
 import re
+import socket
 
-CERT_ID=12345
+CERT_ID='12345'
 CSR_REPLY = """
 <html>
   <head></head>
@@ -19,8 +24,31 @@ CSR_REPLY = """
 </html>
 """ % CERT_ID
 
-class Handler(BaseHTTPServer.BaseHTTPRequestHandler):
-  """BaseHTTPRequestHandler subclass to mock out a simple CSR server."""
+#
+# The SSL related code in this file was partially copied from:
+# http://code.activestate.com/recipes/496786-simple-xml-rpc-server-over-https/
+# which is covered by the PSF licensce: http://www.python.org/psf/license/
+#
+
+class HTTPSecureServer(HTTPServer):
+  def __init__(self, server_address, HandlerClass):
+    BaseServer.__init__(self, server_address, HandlerClass)
+    ctx = SSL.Context(SSL.SSLv3_METHOD)
+    # TODO(rginda): Add command line options for these.
+    ctx.use_privatekey_file('server.key')
+    ctx.use_certificate_file('server.crt')
+    self.socket = SSL.Connection(ctx, socket.socket(self.address_family,
+                                                    self.socket_type))
+    self.server_bind()
+    self.server_activate()
+
+class Handler(SimpleHTTPRequestHandler):
+  """Mock out a simple CSR server."""
+
+  def setup(self):
+    self.connection = self.request
+    self.rfile = socket._fileobject(self.request, "rb", self.rbufsize)
+    self.wfile = socket._fileobject(self.request, "wb", self.wbufsize)
 
 
   def do_POST(self):
@@ -33,7 +61,7 @@ class Handler(BaseHTTPServer.BaseHTTPRequestHandler):
 
   def do_something(self):
     # Capture the path and optional query string.
-    m = re.search(r'/([^\?]+)(\?.*)?', self.path)
+    m = re.search(r'/([^\?]+)(?:\?(.*))?', self.path)
     if not m:
       # Regexp failed somehow, 404 NOT_FOUND
       self.send_response(404)
@@ -102,11 +130,20 @@ class Handler(BaseHTTPServer.BaseHTTPRequestHandler):
     Replys with a text/plain document that a caller might assume was a
     certificate (even though it's just the string 'certificate: <CERT_ID>').
     """
+    if not query_string:
+      self.simple_response("Missing query string", "text/plain")
+
     form = cgi.parse_qs(query_string, keep_blank_values=1)
     if 'id' not in form:
-      self.simple_response("Missing: id")
+      self.simple_response("Missing parameter: id", "text/plain")
+      return
+
+    id = form['id'][0]
+
+    if id != CERT_ID:
+      self.simple_response("Unknown id: %s" % id, "text/plain")
     else:
-      self.simple_response("certificite: %s" % form['id'], "text/plain")
+      self.simple_response("certificite: %s" % id, "text/plain")
 
 
   def simple_response(self, msg, type="text/html"):
@@ -122,7 +159,9 @@ class Handler(BaseHTTPServer.BaseHTTPRequestHandler):
 
 if __name__ == '__main__':
   ip = '127.0.0.1'
-  port = 8080
-  print "Mock certificate server starting up on %s:%s" % (ip, port)
-  httpd = BaseHTTPServer.HTTPServer((ip, port), Handler)
+  port = 4343
+  print "Mock certificate server starting..."
+  httpd = HTTPSecureServer((ip, port), Handler)
+  sa = httpd.socket.getsockname()
+  print "Serving HTTPS on %s:%s." % (sa[0], sa[1])
   httpd.serve_forever()

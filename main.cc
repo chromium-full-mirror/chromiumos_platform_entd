@@ -11,20 +11,28 @@
 
 #include "entd/entd.h"
 #include "entd/extensions.h"
+#include "entd/http.h"
 #include "entd/utils.h"
 
 namespace switches {
 // Path to search for extensions; can contain ~ or env variables (e.g. ${HOME})
 static const char *kExtensionPath = "extension-path";
+
 // User Name
 static const char *kUsername = "username";
+
 // Policy files
 static const char *kManifest = "manifest";
 static const char *kPolicy =   "policy";
 static const char *kUtility =  "utility";
+
 // Certificate files
 static const char *kCsrFile = "csr-file";
 static const char *kCertFile = "cert-file";
+
+// If specified, then self-signed server certs are ok for HTTPS
+static const char *kAllowSelfSigned = "allow-self-signed";
+
 }  // namespace switches
 
 int main(int argc, char** argv) {
@@ -34,8 +42,8 @@ int main(int argc, char** argv) {
 
   CommandLine::Init(argc, argv);
   CommandLine* cl = CommandLine::ForCurrentProcess();
-  std::string base_extension_path
-      = cl->GetSwitchValueASCII(switches::kExtensionPath);
+  std::string base_extension_path =
+      cl->GetSwitchValueASCII(switches::kExtensionPath);
   std::string username = cl->GetSwitchValueASCII(switches::kUsername);
   std::string csr_file = cl->GetSwitchValueASCII(switches::kCsrFile);
   std::string cert_file = cl->GetSwitchValueASCII(switches::kCertFile);
@@ -64,6 +72,9 @@ int main(int argc, char** argv) {
     manifest = cl->GetSwitchValueASCII(switches::kManifest);
   if (cl->HasSwitch(switches::kUtility))
     utility = cl->GetSwitchValueASCII(switches::kUtility);
+
+  if (cl->HasSwitch(switches::kAllowSelfSigned))
+    entd::Http::allow_self_signed_certs = true;
 
   entd::Entd d;
   d.Initialize();

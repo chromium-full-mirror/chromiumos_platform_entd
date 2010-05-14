@@ -32,12 +32,16 @@
 #include <base/basictypes.h>
 #include <base/logging.h>
 #include <curl/curl.h>
+#include <stdlib.h>
 
 #include "entd/entd.h"
 
 namespace entd {
 
 static const std::string kHttpsScheme = "https://";
+
+// Default starting ephemeral port on Linux.
+static const long kEphemeralStart = 32768;
 
 // Class HttpRequest...
 
@@ -296,11 +300,19 @@ bool HttpCurlEasy::CurlSetupRequest(HttpRequest* request, CURL* handle) {
   if (code == CURLE_OK)
     code = curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, HttpWriteCallback);
   if (code == CURLE_OK)
-    code = curl_easy_setopt(handle, CURLOPT_WRITEDATA, (void*)request);
+    code = curl_easy_setopt(handle, CURLOPT_WRITEDATA,
+                            reinterpret_cast<void*>(request));
   if (code == CURLE_OK)
     code = curl_easy_setopt(handle, CURLOPT_HEADERFUNCTION, HttpHeaderCallback);
   if (code == CURLE_OK)
-    code = curl_easy_setopt(handle, CURLOPT_HEADERDATA, (void*)request);
+    code = curl_easy_setopt(handle, CURLOPT_HEADERDATA,
+                            reinterpret_cast<void*>(request));
+  if (code == CURLE_OK) {
+    long verify_peer = Http::allow_self_signed_certs ? 0L : 1L;
+    code = curl_easy_setopt(handle, CURLOPT_SSL_VERIFYPEER,
+                            reinterpret_cast<void*>(verify_peer));
+  }
+
   if (code != CURLE_OK) {
     LOG(WARNING) << "Error setting curl options: " << code;
     return false;
@@ -497,6 +509,8 @@ Http::~Http() {
   CleanupTemplate();
 }
 
+bool Http::allow_self_signed_certs = false;
+
 bool Http::Initialize() {
   if (messenger_ == NULL) {
     // Default messenger uses libcurl
@@ -539,14 +553,24 @@ bool Http::HttpGet(HttpRequest* request) {
   if (!timeout_)
     timeout_ = entd_->SetNativeTimeout(dispatch_OnNativeTimeout, this, 0);
 
-  return messenger_->HttpGet(request);
+  if (!messenger_->HttpGet(request))
+    return false;
+
+  request->obj()->Set(v8::String::NewSymbol("url"),
+                      v8::String::New(request->GetUrl().c_str()));
+  return true;
 }
 
 bool Http::HttpPost(HttpRequest* request) {
   if (!timeout_)
     timeout_ = entd_->SetNativeTimeout(dispatch_OnNativeTimeout, this, 0);
 
-  return messenger_->HttpPost(request);
+  if (!messenger_->HttpPost(request))
+    return false;
+
+  request->obj()->Set(v8::String::NewSymbol("url"),
+                      v8::String::New(request->GetUrl().c_str()));
+  return true;
 }
 
 // Local dispatch fucntions for Http template bindings.
@@ -582,6 +606,18 @@ static bool CheckRequestArgs(const v8::Arguments& args,
     path = "/";
   } else if (path[0] != '/') {
     path = "/" + path;
+  }
+
+  std::string port_str = request->GetString("port");
+  if (port_str.length() > 0) {
+    char *endptr;
+    long port = strtol(port_str.c_str(), &endptr, 10);
+    if (*endptr != '\0' || port <= 0 || port >= kEphemeralStart) {
+      utils::ThrowV8Exception("Invalid port");
+      return false;
+    }
+
+    hostname.append(":" + port_str);
   }
 
   request->SetUrl(kHttpsScheme + hostname + path);

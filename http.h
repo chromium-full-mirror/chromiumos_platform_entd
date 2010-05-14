@@ -50,6 +50,8 @@ class Http : public JSObjectWrapper<Http> {
   virtual bool Initialize();
   static const char* GetClassName() { return "http"; }
 
+  static bool allow_self_signed_certs;
+
   Entd* GetEntd() { return entd_; };
 
   // Bind functions / properties to the V8 template object:

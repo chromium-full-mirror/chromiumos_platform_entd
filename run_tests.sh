@@ -86,6 +86,7 @@ greptest "--extension-path=test_data/Extensions" '{"foo":1,"bar":2}'
 # Http tests.
 greptest "http-good.js" "HTTP COMPLETE"
 greptest "http-badhost.js" "HTTP ERROR: Couldn't resolve"
+greptest "http-badport.js" "LOOKS OK"
 greptest "http-evilhost.js" "Invalid hostname"
 greptest "http-badrequest.js" "First argument must be a Request object"
 greptest "http-redirect.js" "HTTP COMPLETE"

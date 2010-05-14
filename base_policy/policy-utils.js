@@ -155,19 +155,27 @@ function addCertificate(id, params) {
  * - 'csr': An object defining the parameters of the Certificate Signing
  *       Request.  The object may have the following properties:
  *     - 'subject': A string continaing the subject for the CSR.
- *     - 'url': A url pointing to where the CSR should be sent.  CSRs are
+ *     - 'host': The hostname where the CSR should be sent.  This must be
+ *         the same as, or a subdomain of, entd.hostname.
+ *     - 'port': (optional) The port on the target host where the CSR should
+ *         be sent.  Defaults to 443.
+ *     - 'path': The path to where the CSR should be sent.  CSRs are
  *         sent using the HTTP POST method.  Any variable references in the
- *         url are resolved before sending the request.
+ *         path are resolved before sending the request.
  *     - 'post_params': An optional JavaScript object containing parameters
  *         that should be sent with the POST.  Variable references in the
  *         values will be resolved before sending the request.
  *
  * - 'issue': An object defining the parameters of the Certificate issue
  *       request.  The object may have the following properties:
- *    - 'url': A url pointing to where the Certificate issue request
- *        should be sent.  Certificate issue requests are sent using the
- *        HTTP GET method.  Any variable references in the url are resolved
- *        before sending the request.
+ *     - 'host': The hostname where the Certificate issue request should
+ *         be sent.  This must be the same as, or a subdomain of, entd.hostname.
+ *     - 'port': (optional) The port on the target host where the Certificate
+ *         issue request should be sent.  Defaults to 443.
+ *     - 'path': The path to where the Certificate issue request should be
+ *         sent.  Certificate issue requests are sent using the HTTP GET
+ *         method.  Any variable references in the path are resolved before
+ *         sending the request.
  *
  * See entd.crypto.Certificate() for the conrete certificate class.
  *
@@ -186,10 +194,10 @@ function PolicyCertificate(policy, id, params) {
   this.label = params.label;
   this.pkcs11slot = params.pkcs11slot;
 
-  util.ensureProperties(params.csr, ['subject', 'url'], 'params.csr');
+  util.ensureProperties(params.csr, ['subject', 'host', 'path'], 'params.csr');
   this.csr = params.csr;
 
-  util.ensureProperties(params.issuer, ['url'], 'params.issuer');
+  util.ensureProperties(params.issuer, ['host', 'path'], 'params.issuer');
   this.issuer = params.issuer;
 
   this.variables_ = util.clone(this.policy.variables_);
@@ -290,7 +298,10 @@ function initiateCSR() {
   this.info('Initiating Certificate Signing Request');
 
   // Set up a request object.
-  var r = new entd.http.Request(this.replaceVars(this.csr.url));
+  var r = new entd.http.Request(this.csr.host, this.replaceVars(this.csr.path));
+
+  if ('port' in this.csr)
+    r.port = this.csr.port;
 
   // We use this property in the callbacks to make log messages more useful.
   r.description = 'Certificate Signing Request';
@@ -324,8 +335,8 @@ function initiateCSR() {
   r.onError = util.fwdp(this, 'onHTTPError_');
 
   // Fire off the POST request.
-  this.info('POSTing to ' + r.url);
   entd.http.POST(r);
+  this.info('POSTing to ' + r.url);
 };
 
 // Called when a http request times out.
@@ -365,7 +376,11 @@ Policy.Certificate.prototype.getCert_ =
 function getCert_() {
   this.info('Getting Certificate');
 
-  var r = new entd.http.Request(this.replaceVars(this.issuer.url));
+  var r = new entd.http.Request(this.issuer.host,
+                                this.replaceVars(this.issuer.path));
+
+  if ('port' in this.issuer)
+    r.port = this.issuer.port;
 
   // Stash this so that we can refer to it later in on onIssuanceComplete
   r.certificate = this;
@@ -378,6 +393,7 @@ function getCert_() {
   r.onError = util.fwdp(this, 'onHTTPError_');
 
   entd.http.GET(r);
+  this.info('GETing from ' + r.url);
 };
 
 // Called when the certificate-issue request completes with anything
