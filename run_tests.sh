@@ -118,7 +118,8 @@ greptest "cleartimeout.js" "starting timeouts function timeout"
 # Fire off this bg task to make an http request
 (sleep 2; \
   curl --data-binary '{"function": "stop"}' \
-    -H "Content-Type: application/json" -H "X-Entd-Request: magic" \
+    -H "Content-Type: application/json; charset=UTF-8" \
+    -H "X-Entd-Request: magic" \
     localhost:5199/dispatch -so /dev/null) &
 
 # Then start up the callback server before the timeout fires.
