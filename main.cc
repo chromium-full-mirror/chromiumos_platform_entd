@@ -33,6 +33,11 @@ static const char *kCertFile = "cert-file";
 // If specified, then self-signed server certs are ok for HTTPS
 static const char *kAllowSelfSigned = "allow-self-signed";
 
+// If specified, don't watch for signals.  This allows the process to exit
+// automatically when all events have been processed.  See the comment in
+// entd.h for a little more info.
+static const char *kAllowDirtyExit = "allow-dirty-exit";
+
 }  // namespace switches
 
 int main(int argc, char** argv) {
@@ -76,6 +81,9 @@ int main(int argc, char** argv) {
   if (cl->HasSwitch(switches::kAllowSelfSigned))
     entd::Http::allow_self_signed_certs = true;
 
+  if (cl->HasSwitch(switches::kAllowDirtyExit))
+    entd::Entd::allow_dirty_exit = true;
+
   entd::Entd d;
   d.Initialize();
 
@@ -94,7 +102,7 @@ int main(int argc, char** argv) {
   if (!csr_file.empty() || !cert_file.empty())
     d.SetCertificateFiles(csr_file, cert_file);
 
-  bool rv = d.Run();
-  LOG(INFO) << "Exiting entd";
-  return rv ? 0 : 1;
+  uint32_t rv = d.Run();
+  LOG(INFO) << "Exiting entd with code: " << rv;
+  return rv;
 }

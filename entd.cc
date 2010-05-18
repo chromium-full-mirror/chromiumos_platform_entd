@@ -149,6 +149,12 @@ class NativeTimeout
 
 uint32_t NativeTimeout::s_handle_counter_ = 1;
 
+// Called by libevent when a signal is detected.
+void dispatch_OnSignal(int fd, short flags, void* arg) {
+  Entd* entd = reinterpret_cast<Entd*>(arg);
+  entd->OnSignal(fd);
+}
+
 // Called by libevent when a timeout fires.
 void dispatch_OnTimeout(int fd, short flags, void* arg) {
   Timeout* timeout = reinterpret_cast<Timeout*>(arg);
@@ -193,6 +199,25 @@ v8::Handle<v8::Value> dispatch_ClearTimeout(const v8::Arguments& args) {
     return v8::False();
 
   delete timeout;
+  return v8::True();
+}
+
+// Called by v8 for entd.scheduleShutdown().
+v8::Handle<v8::Value> dispatch_ScheduleShutdown(const v8::Arguments& args) {
+  Entd* entd = Entd::Unwrap(args.This());
+  if (!entd)
+    return v8::Undefined();
+
+  uint32_t code = 0;
+  if (args.Length() > 0)
+    code = args[0]->Uint32Value();
+
+  uint32_t interval = 0;
+  if (args.Length() > 1)
+    interval = args[1]->Uint32Value();
+
+  entd->ScheduleShutdown(code, interval);
+
   return v8::True();
 }
 
@@ -243,7 +268,6 @@ Entd::Entd()
   ::g_type_init();
 }
 
-
 Entd::~Entd() {
   // Clean up any pending timeouts.
   for (unsigned int i = 0; i < timeout_list_.size(); ++i) {
@@ -255,6 +279,8 @@ Entd::~Entd() {
   context_.Dispose();
 }
 
+bool Entd::allow_dirty_exit = false;
+
 // Bind "setTimeout" and "clearTimeout" to the entd template object.
 void Entd::SetTemplateBindings(v8::Handle<v8::ObjectTemplate> template_object) {
   template_object->Set(v8::String::NewSymbol("setTimeout"),
@@ -262,6 +288,9 @@ void Entd::SetTemplateBindings(v8::Handle<v8::ObjectTemplate> template_object) {
                        v8::ReadOnly);
   template_object->Set(v8::String::NewSymbol("clearTimeout"),
                        v8::FunctionTemplate::New(dispatch_ClearTimeout),
+                       v8::ReadOnly);
+  template_object->Set(v8::String::NewSymbol("scheduleShutdown"),
+                       v8::FunctionTemplate::New(dispatch_ScheduleShutdown),
                        v8::ReadOnly);
 
   template_object->SetAccessor(v8::String::NewSymbol("hostname"),
@@ -281,47 +310,34 @@ bool Entd::Initialize() {
   return true;
 }
 
-bool Entd::ConstructEntd() {
+v8::Handle<v8::Object> Entd::ConstructEntd() {
   v8::HandleScope handle_scope;
-
-  v8::Handle<v8::ObjectTemplate> global_template = v8::ObjectTemplate::New();
-  global_template->Set(v8::String::NewSymbol("print"),
-                       v8::FunctionTemplate::New(dispatch_Print),
-                       v8::ReadOnly);
-  global_template->Set(v8::String::NewSymbol("println"),
-                       v8::FunctionTemplate::New(dispatch_PrintLn),
-                       v8::ReadOnly);
-  context_ = v8::Context::New(NULL, global_template);
-
-  // Switch to our context and instantiate the entd object.
-  v8::Context::Scope context_scope(context_);
-  v8::Handle<v8::Object> global = context_->Global();
 
   // Build the entd object.
   JSObjectWrapper<Entd>::Initialize();
-  v8::Handle<v8::Object> entd_object = obj();
+  v8::Handle<v8::Object> entd = obj();
 
   // Build the flimflam object.
   flimflam_->Initialize();
-  entd_object->Set(v8::String::NewSymbol("flimflam"),
-                   flimflam_->obj(), v8::ReadOnly);
+  entd->Set(v8::String::NewSymbol("flimflam"),
+            flimflam_->obj(), v8::ReadOnly);
 
   // Build the http object.
   http_.reset(new Http(this, NULL));
   http_->Initialize();
-  entd_object->Set(v8::String::NewSymbol("http"),
-                   http_->obj(), v8::ReadOnly);
+  entd->Set(v8::String::NewSymbol("http"),
+            http_->obj(), v8::ReadOnly);
 
   // Build the syslog object.
   syslog_->Initialize();
-  entd_object->Set(v8::String::NewSymbol("syslog"),
-                   syslog_->obj(), v8::ReadOnly);
+  entd->Set(v8::String::NewSymbol("syslog"),
+            syslog_->obj(), v8::ReadOnly);
 
   // Build the callbackServer object.
   callback_server_.reset(new CallbackServer(this));
   callback_server_->Initialize();
-  entd_object->Set(v8::String::NewSymbol("callbackServer"),
-                   callback_server_->obj(), v8::ReadOnly);
+  entd->Set(v8::String::NewSymbol("callbackServer"),
+            callback_server_->obj(), v8::ReadOnly);
 
   // Setup the pkcs11 handlers
   Pkcs11CertificateHandler* cert_handler(NULL);  // NULL indicates default
@@ -334,35 +350,41 @@ bool Entd::ConstructEntd() {
   // Build the pkcs11 object
   pkcs11_.reset(new Pkcs11(cert_handler, slot_handler));
   pkcs11_->Initialize();
-  entd_object->Set(v8::String::New("pkcs11"),
-                   pkcs11_->obj(), v8::ReadOnly);
+  entd->Set(v8::String::New("pkcs11"),
+            pkcs11_->obj(), v8::ReadOnly);
 
-  // Bind entd to the global object.
-  global->Set(v8::String::New("entd"), entd_object, v8::ReadOnly);
-
-  return true;
+  return handle_scope.Close(entd);
 }
 
-bool Entd::Run() {
+bool Entd::StartScriptingEnvironment() {
   v8::HandleScope handle_scope;
 
-  ConstructEntd();
+  // Create the global object.
+  v8::Handle<v8::ObjectTemplate> global_template = v8::ObjectTemplate::New();
+  global_template->Set(v8::String::NewSymbol("print"),
+                       v8::FunctionTemplate::New(dispatch_Print),
+                       v8::ReadOnly);
+  global_template->Set(v8::String::NewSymbol("println"),
+                       v8::FunctionTemplate::New(dispatch_PrintLn),
+                       v8::ReadOnly);
+  context_ = v8::Context::New(NULL, global_template);
 
-  // Make sure we're running on our context.
   v8::Context::Scope context_scope(context_);
 
-  // Temporary storage for the a generic value used in this function.
+  v8::Handle<v8::Object> global = context_->Global();
+
+  // Construct the global entd object.
+  v8::Handle<v8::Object> entd = ConstructEntd();
+
+  // Set the "entd" property of the global object.
+  global->Set(v8::String::NewSymbol("entd"), entd, v8::ReadOnly);
+
+  // Temporary storage for the generic values used below.
   v8::Handle<v8::Value> value;
 
-  value = context_->Global()->Get(v8::String::NewSymbol("entd"));
-  if (value.IsEmpty() || !value->IsObject()) {
-    LOG(ERROR) << "Global entd missing or not an object";
-    return false;
-  }
-
-  v8::Handle<v8::Object> entd = v8::Handle<v8::Object>::Cast(value);
+  // Set entd.username and entd.hostname.
   entd->Set(v8::String::NewSymbol("username"),
-            v8::String::New(username_.c_str()));
+            v8::String::New(username_.c_str()), v8::ReadOnly);
 
   size_t at_pos = username_.find("@");
   if (at_pos == std::string::npos || at_pos == username_.length() - 1) {
@@ -375,6 +397,7 @@ bool Entd::Run() {
     return false;
   }
 
+  // Load manifest file, if one was provided.
   v8::Handle<v8::Object> manifest;
 
   if (manifest_filename_.empty()) {
@@ -388,6 +411,7 @@ bool Entd::Run() {
     manifest = v8::Handle<v8::Object>::Cast(value);
   }
 
+  // Load utility file, if one was provided.
   if (!utility_filename_.empty()) {
     LOG(INFO) << "Executing utility file: " << utility_filename_;
     if (!ExecuteFile(utility_filename_, &value)) {
@@ -396,6 +420,7 @@ bool Entd::Run() {
     }
   }
 
+  // Load the policy file.
   if (policy_filename_.empty()) {
     LOG(ERROR) << "No policy file.";
     return false;
@@ -408,6 +433,7 @@ bool Entd::Run() {
 
   LOG(INFO) << "Policy loaded.";
 
+  // Fire the onLoad event.
   if (entd->Has(v8::String::NewSymbol("onLoad"))) {
     v8::TryCatch try_catch;
 
@@ -429,12 +455,81 @@ bool Entd::Run() {
     }
   }
 
-  event_loop(0);
+  return true;
+}
+
+bool Entd::StopScriptingEnvironment() {
+  // Temporary storage for the a generic value used in this function.
+  v8::Handle<v8::Value> value;
+
+  value = context_->Global()->Get(v8::String::NewSymbol("entd"));
+  if (value.IsEmpty() || !value->IsObject()) {
+    LOG(ERROR) << "Global entd missing or not an object";
+    return false;
+  }
+
+  v8::Handle<v8::Object> entd = v8::Handle<v8::Object>::Cast(value);
+
+  if (entd->Has(v8::String::NewSymbol("onUnload"))) {
+    v8::TryCatch try_catch;
+
+    value = utils::CallV8Function(entd, "onUnload", 0, NULL);
+    if (try_catch.HasCaught()) {
+      // Failed due to V8 exception
+      utils::ReportV8Exception(&try_catch);
+      return false;
+    } else if (value.IsEmpty()) {
+      // Failed for other reasons
+      return false;
+    }
+  }
 
   return true;
 }
 
-void Entd::Stop() {
+uint32_t Entd::Run() {
+  exit_code_ = 0;
+
+  if (!StartScriptingEnvironment())
+    return 1;
+
+  struct event ev_SIGHUP;
+  struct event ev_SIGINT;
+  struct event ev_SIGTERM;
+
+  if (!Entd::allow_dirty_exit) {
+    event_set(&ev_SIGHUP, SIGHUP, EV_SIGNAL | EV_PERSIST, &dispatch_OnSignal,
+              reinterpret_cast<void*>(this));
+    event_add(&ev_SIGHUP, NULL);
+    event_set(&ev_SIGINT, SIGINT, EV_SIGNAL | EV_PERSIST, &dispatch_OnSignal,
+              reinterpret_cast<void*>(this));
+    event_add(&ev_SIGINT, NULL);
+    event_set(&ev_SIGTERM, SIGTERM, EV_SIGNAL | EV_PERSIST, &dispatch_OnSignal,
+              reinterpret_cast<void*>(this));
+    event_add(&ev_SIGTERM, NULL);
+  }
+
+  // Set up the handle and context scope for JavaScript run from event handlers,
+  // or from StopScriptingEnvironment().
+  v8::HandleScope handle_scope;
+  v8::Context::Scope context_scope(context_);
+
+  event_loop(0);
+
+  if (!Entd::allow_dirty_exit) {
+    event_del(&ev_SIGHUP);
+    event_del(&ev_SIGINT);
+    event_del(&ev_SIGTERM);
+  }
+
+  if (!StopScriptingEnvironment())
+    return 2;
+
+  return exit_code_;
+}
+
+void Entd::OnSignal(int signal) {
+  LOG(INFO) << "Responding to signal: " << signal;
   event_loopbreak();
 }
 
@@ -459,6 +554,12 @@ Timeout* Entd::ClearTimeout(uint32_t timeout_handle) {
   }
 
   return NULL;
+}
+
+void Entd::ScheduleShutdown(uint32_t code, uint32_t interval) {
+  exit_code_ = code;
+  struct timeval tv = { 0, interval * 1000 };
+  event_loopexit(&tv);
 }
 
 void Entd::OnTimeout(const Timeout& timeout) {

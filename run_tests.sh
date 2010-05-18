@@ -4,7 +4,11 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+# TODO: Get these tests running in a cross-platform fashion from the src_test
+# stanza of the entd ebuild.
+
 USERNAME="user@google.com"
+ALLOW_DIRTY_EXIT=1
 ENTD="../../scripts/run_32bit.sh out/i686-pc-linux-gnu/entd --"
 
 # If non-zero, print test output on failure
@@ -40,6 +44,10 @@ function greptest {
   fi
 
   local cmd="$ENTD --username=$USERNAME $args"
+  if [ ! -z "$ALLOW_DIRTY_EXIT" ]; then
+    cmd="$cmd --allow-dirty-exit"
+  fi
+
   local out=$($cmd 2>&1)
   local code=$?
 
@@ -74,6 +82,7 @@ greptest "print-username.js" "username: $USERNAME"
 greptest "throw-exception.js" 'throw "goodbye world"'
 greptest "syslog.js" "entd.syslog.error"
 greptest "simple-hostname.js" "LOOKS OK"
+greptest "simple-onunload.js" "LOOKS OK"
 
 # Basic tests with longer command lines.
 greptest "--policy=test_data/print-manifest.js \
@@ -114,6 +123,7 @@ greptest "pkcs11-remove.js" "Slot1: undefined"
 # Slightly longer running tests.
 greptest "settimeout.js" "string timeout function timeout"
 greptest "cleartimeout.js" "starting timeouts function timeout"
+greptest "simple-shutdown.js" "LOOKS OK"
 
 # Fire off this bg task to make an http request
 (sleep 2; \

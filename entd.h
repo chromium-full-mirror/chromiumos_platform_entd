@@ -34,6 +34,15 @@ class Entd : public JSObjectWrapper<Entd> {
   Entd();
   virtual ~Entd();
 
+  // If true, entd will automatically exit when all events are processed.
+  // However, in order to support this entd will not watch for signal events.
+  // This means that onUnload() won't get called for SIGTERM or other process
+  // ending signals.
+  //
+  // It is useful for testing, to ensure that entd exits even if the testcase
+  // fails, but not meant for production instances.
+  static bool allow_dirty_exit;
+
   void SetUsername(const std::string& username) {
     LOG(INFO) << "Username set to: " << username;
     username_ = username;
@@ -89,15 +98,8 @@ class Entd : public JSObjectWrapper<Entd> {
   // Immediate Initializations (before parameters are set)
   virtual bool Initialize();
 
-  // Construct the Entd object, called at the beggining of Run()
-  // (After setting parameters (e.g.SetCertificateFiles()) )
-  virtual bool ConstructEntd();
-
   // Load the policy script and start processing events.
-  virtual bool Run();
-
-  // Stop event processing and return from Run().
-  virtual void Stop();
+  virtual uint32_t Run();
 
   // Set a timeout to fire in a specified number of milliseconds.  Takes a JS
   // function or string and a integer number of milliseconds to wait.  Returns
@@ -107,6 +109,13 @@ class Entd : public JSObjectWrapper<Entd> {
   // Remove a timeout from the list of timeouts.  This DOES NOT delete
   // the timeout.  It's up to the caller to ensure that happens somehow.
   virtual Timeout* ClearTimeout(uint32_t timeout_handle);
+
+  // Schedule Entd to shutdown with the specified exit code, after the
+  // specified number of milliseconds.
+  virtual void ScheduleShutdown(uint32_t code, uint32_t interval);
+
+  // Invoked when a signal has been detected.
+  virtual void OnSignal(int signal);
 
   // Invoked when the timeout specified by timeout_handle fires.
   virtual void OnTimeout(const Timeout& timeout);
@@ -163,6 +172,15 @@ class Entd : public JSObjectWrapper<Entd> {
                              v8::Handle<v8::Value>* result);
 
  private:
+  // Construct the Entd object.
+  virtual v8::Handle<v8::Object> ConstructEntd();
+
+  // Initialize entd state, load various scripts, and fire the onLoad event.
+  virtual bool StartScriptingEnvironment();
+
+  // Fire the onUnload event.
+  virtual bool StopScriptingEnvironment();
+
   // Invoke some method on the global JSON object.
   bool CallJson(std::string method_name, v8::Handle<v8::Value> arg,
                 v8::Handle<v8::Value>* result);
@@ -179,6 +197,9 @@ class Entd : public JSObjectWrapper<Entd> {
   // The entire username: user@example.com
   std::string username_;
 
+  // Exiting happens asynchronously.  This is where the exit code is stashed
+  // until the daemon has finished shutting down.
+  int exit_code_;
 
   uint32_t timeout_sequence_;
   std::vector<Timeout*> timeout_list_;
