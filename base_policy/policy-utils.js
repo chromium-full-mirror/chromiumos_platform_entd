@@ -149,6 +149,12 @@ function addCertificate(id, params) {
  * - 'label': A string defining a human readable label that uniquely identifies
  *     this certificate.
  *
+ * - 'onInstall': (optional) A function to invoke when the certificate is
+ *     successfully installed, or when entd starts up after having already
+ *     installed the certificate.  The function will receive a single boolean
+ *     parameter which indicates whether or not this is the first install
+ *     of the certificate (parameter is true), or a restart of entd.
+ *
  * - 'pkcs11slot': An integer defining the PKCS#11 slot identifier in which
  *     to store the certificate and key matter.
  *
@@ -196,6 +202,7 @@ function PolicyCertificate(policy, id, params) {
                         'params');
 
   this.label = params.label;
+  this.onInstall = params.onInstall;
   this.pkcs11slot = params.pkcs11slot;
 
   util.ensureProperties(params.csr, ['subject', 'host', 'path'], 'params.csr');
@@ -214,6 +221,14 @@ function PolicyCertificate(policy, id, params) {
   this.userVariables = params.userVariables || {};
 
   this.status = this.isInstalled() ? 'Installed' : 'Not Installed';
+
+  if (this.isInstalled() && typeof this.onInstall == "function") {
+    try {
+      this.onInstall(/* firstInstall: */ false);
+    } catch (ex) {
+      this.error('Exception re-running post-install callback: ' + ex);
+    }
+  }
 };
 
 /**
@@ -425,6 +440,14 @@ function onIssuanceComplete(request, response) {
   entd.pkcs11.store(this.pkcs11slot, this.label, 'cert', cert);
 
   this.info('Certificate stored in slot: ' + this.pkcs11slot);
+
+  if (typeof request.certificate.onInstall == "function") {
+    try {
+      request.certificate.onInstall(/* firstInstall: */ true);
+    } catch (ex) {
+      this.error('Exception running post-install callback: ' + ex);
+    }
+  }
 };
 
 

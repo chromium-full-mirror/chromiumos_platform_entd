@@ -26,6 +26,10 @@ function onLoad(manifest) {
       { // Human readable label associated with this cert in the TPM
         label: "802.11x Wireless",
 
+        // This function will be called when the certificate is successfully
+        // installed.
+        "onInstall": util.fwdp(policy, "onWifiCertInstalled"),
+
         // The pkcs#11 slot id to store the cert in.
         pkcs11slot: "1",
 
@@ -116,6 +120,13 @@ function onLoad(manifest) {
   entd.callbackServer.start(policy.callbacks);
 }
 
+// Called when entd stops for any reason.  You might perform some cleanup like
+// unconfiguring wireless networks here.
+entd.onUnload =
+function onUnload() {
+  entd.syslog.info("onUnload called.");
+}
+
 // This function will be called after a successful CSR request.  It should
 // inspect the repsponse (most likely response.content) and extract any
 // variables that might be needed to form the certificate issue request.
@@ -128,4 +139,18 @@ function parseCSR(response) {
 
   this.info("Parsed request id: " + ary[1]);
   this.setVariable("requestId", ary[1]);
+}
+
+// Called when the wifi certificate is successfully installed for the first
+// time, and every time entd starts up and notices that this certificate has
+// already been installed.  If the firstInstall parameter is true, then
+// this is the first time the certificate has been installed.
+//
+// This is hooked up in the addCertificate() call above.
+Policy.prototype.onWifiCertInstalled =
+function onWifiCertInstalled(cert, firstInstall) {
+  entd.syslog.info("onWifiCertInstalled called: firstInstall: " + firstInstall);
+
+  // This is where you might make use of the recently acquired certificate
+  // to set up a network.
 }
