@@ -30,7 +30,7 @@ const uint32_t kMinPort      = 5000;
 const uint32_t kMaxPort      = 5999;
 
 // Incoming requests must have this content type
-const std::string kContentType = "application/json";
+const std::string kContentType = "application/json; charset=UTF-8";
 // Incoming requests must have an X-Entd-Request header set to this value.
 // In a future version, this string will come from the manifest.
 const std::string kEntdMagic   = "magic";

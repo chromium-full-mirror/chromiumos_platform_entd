@@ -393,7 +393,7 @@ function invokePolicyCallback(name, arg, oncomplete) {
   xhr.open('POST', 'http://127.0.0.1:' + client.policyCallbackPort +
            '/dispatch');
   xhr.setRequestHeader('X-Entd-Request', 'magic');
-  xhr.setRequestHeader('Content-Type', 'application/json');
+  xhr.setRequestHeader('Content-Type', 'application/json; charset=UTF-8');
   xhr.send(JSON.stringify({'function': name, 'argument': arg}));
 };
 
