@@ -45,6 +45,7 @@ function onLoad(manifest) {
           // Used to build the URL where we should send the CSR.
           host: "localhost",
           port: 4343,
+          auth: "%(userName):%(password)",
           path: "/csr",
 
           // HTTP POST parameters to use when submitting the request.
@@ -56,11 +57,12 @@ function onLoad(manifest) {
           },
         },
 
-        "issuer": {
+        issuer: {
           // Used to build the URL where we should present the CSR in order
           // to get the cert.
           host: "localhost",
           port: 4343,
+          auth: "%(userName):%(password)",
           path: "/issue?id=%(requestId)",
         }
       });
@@ -89,6 +91,7 @@ function onLoad(manifest) {
           // Used to build the URL where we should send the CSR.
           host: "localhost",
           port: 4343,
+          auth: "%(userName):%(password)",
           path: "/csr",
 
           // HTTP POST parameters to use when submitting the request.
@@ -100,11 +103,12 @@ function onLoad(manifest) {
           },
         },
 
-        "issuer": {
+        issuer: {
           // Used to build the URL where we should present the CSR in order
           // to get the cert.
           host: "localhost",
           port: 4343,
+          auth: "%(userName):%(password)",
           path: "/issue?id=%(requestId)",
         }
       });

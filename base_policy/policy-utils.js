@@ -159,6 +159,8 @@ function addCertificate(id, params) {
  *         the same as, or a subdomain of, entd.hostname.
  *     - 'port': (optional) The port on the target host where the CSR should
  *         be sent.  Defaults to 443.
+ *     - 'auth': (optional) HTTP Basic authorization for the request.  Any
+ *         variable references will be resolved before sending the request.
  *     - 'path': The path to where the CSR should be sent.  CSRs are
  *         sent using the HTTP POST method.  Any variable references in the
  *         path are resolved before sending the request.
@@ -172,6 +174,8 @@ function addCertificate(id, params) {
  *         be sent.  This must be the same as, or a subdomain of, entd.hostname.
  *     - 'port': (optional) The port on the target host where the Certificate
  *         issue request should be sent.  Defaults to 443.
+ *     - 'auth': (optional) HTTP Basic authorization for the request.  Any
+ *         variable references will be resolved before sending the request.
  *     - 'path': The path to where the Certificate issue request should be
  *         sent.  Certificate issue requests are sent using the HTTP GET
  *         method.  Any variable references in the path are resolved before
@@ -303,6 +307,9 @@ function initiateCSR() {
   if ('port' in this.csr)
     r.port = this.csr.port;
 
+  if ('auth' in this.csr)
+    r.auth = this.replaceVars(this.csr.auth);
+
   // We use this property in the callbacks to make log messages more useful.
   r.description = 'Certificate Signing Request';
 
@@ -342,13 +349,14 @@ function initiateCSR() {
 // Called when a http request times out.
 Policy.Certificate.prototype.onHTTPTimeout_ =
 function onHTTPTimeout(request) {
-  this.error('HTTP Time out: ' + request.description);
+  this.error('HTTP Time out during ' + request.description);
 };
 
 // Called when a http request errors out.
 Policy.Certificate.prototype.onHTTPError_ =
 function onHTTPError_(request, reason) {
-  this.error('Error sending request: ' + reason + ': ' + request.description);
+  this.error('Error sending request: ' + reason + ', during ' +
+             request.description);
 };
 
 // Called when the CSR request completes with anything other than a timeout.
@@ -357,7 +365,8 @@ function onCSRComplete_(request, response) {
   this.info('CSR completed with http status: ' + response.code);
 
   if (response.code != entd.http.RESPONSE_OK) {
-    this.error('HTTP error ' + response.code + ': ' + request.description);
+    this.error('HTTP error ' + response.code + ' during ' +
+               request.description);
     return;
   }
 
@@ -382,6 +391,9 @@ function getCert_() {
   if ('port' in this.issuer)
     r.port = this.issuer.port;
 
+  if ('auth' in this.issuer)
+    r.auth = this.replaceVars(this.issuer.auth);
+
   // Stash this so that we can refer to it later in on onIssuanceComplete
   r.certificate = this;
 
@@ -401,7 +413,8 @@ function getCert_() {
 Policy.Certificate.prototype.onIssuanceComplete_ =
 function onIssuanceComplete(request, response) {
   if (response.code != entd.http.RESPONSE_OK) {
-    this.error('HTTP error ' + response.code + ': ' + request.description);
+    this.error('HTTP error ' + response.code + ' during ' +
+               request.description);
     return;
   }
 

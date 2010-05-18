@@ -8,6 +8,7 @@ from OpenSSL import SSL
 from SimpleHTTPServer import SimpleHTTPRequestHandler
 from SocketServer import BaseServer
 
+import base64
 import cgi
 import re
 import socket
@@ -51,6 +52,27 @@ class Handler(SimpleHTTPRequestHandler):
     self.wfile = socket._fileobject(self.request, "wb", self.wbufsize)
 
 
+  def check_auth(self):
+    authz = self.headers.get('Authorization')
+    if not authz:
+      return False
+
+    m = re.search(r'Basic (\S+)', authz)
+    if not m:
+      return False
+
+    try:
+      authz = base64.b64decode(m.group(1))
+    except TypeError:
+      return False
+
+    (username, password) = authz.split(':')
+    if password != username + '_password':
+      return False
+
+    return True
+
+
   def do_POST(self):
     self.do_something()
 
@@ -60,6 +82,13 @@ class Handler(SimpleHTTPRequestHandler):
 
 
   def do_something(self):
+    if not self.check_auth():
+      self.send_response(401)
+      self.send_header('Content-Type', 'text/plain')
+      self.send_header('WWW-Authenticate', 'Basic realm="Mock Cert Server"')
+      self.end_headers()
+      return
+
     # Capture the path and optional query string.
     m = re.search(r'/([^\?]+)(?:\?(.*))?', self.path)
     if not m:

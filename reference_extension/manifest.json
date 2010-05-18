@@ -1,6 +1,6 @@
 {
   "name": "Chromium OS Enterprise Policy",
-  "version": "0.1",
+  "version": "0.2",
   "description": "Chromium OS Enterprise Policy for corp.example.com",
   "options_page": "options.html",
   "permissions": [ "http://127.0.0.1/*" ]

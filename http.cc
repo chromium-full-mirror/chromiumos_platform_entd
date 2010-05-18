@@ -313,6 +313,14 @@ bool HttpCurlEasy::CurlSetupRequest(HttpRequest* request, CURL* handle) {
                             reinterpret_cast<void*>(verify_peer));
   }
 
+  if (code == CURLE_OK) {
+    std::string auth = request->GetString("auth");
+    if (auth.length() > 0) {
+      code = curl_easy_setopt(handle, CURLOPT_USERPWD,
+                              reinterpret_cast<const void*>(auth.c_str()));
+    }
+  }
+
   if (code != CURLE_OK) {
     LOG(WARNING) << "Error setting curl options: " << code;
     return false;
