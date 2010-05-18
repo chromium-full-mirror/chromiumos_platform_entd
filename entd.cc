@@ -366,7 +366,7 @@ bool Entd::Run() {
 
   size_t at_pos = username_.find("@");
   if (at_pos == std::string::npos || at_pos == username_.length() - 1) {
-    LOG(ERROR) << "Can't determine hostname from username.";
+    LOG(ERROR) << "Can't determine hostname from username: " << username_;
     return false;
   }
 

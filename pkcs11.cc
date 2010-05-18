@@ -52,6 +52,83 @@ std::string Pkcs11CertificateHandlerLocalFile::BuildCertificate(
   return cert;
 }
 
+// Class Pkcs11CertificateHandlerOpenSsl
+// Implements CSR generation using 'system("openssl req...")'.
+class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
+ public:
+  Pkcs11CertificateHandlerOpenSsl()
+      : cert_passphrase_("") {
+  }
+
+  virtual ~Pkcs11CertificateHandlerOpenSsl() {}
+
+  virtual bool Initialize() { return true; }
+
+  virtual std::string BuildCSR(const std::string& subject) {
+    // temporary filenames
+    const std::string private_key_filename = "privkey";
+    const std::string csr_filename = "csr";
+
+    // build the openssl command
+    std::string cmd =
+        std::string("openssl req -new -batch -newkey rsa:2048 -nodes")
+        + " -keyout " + private_key_filename
+        + " -subj \"" + subject + "\""
+        + " -pubkey -out " + csr_filename;
+    if (!cert_passphrase_.empty())
+      cmd += " -passout pass:" + cert_passphrase_;
+
+    // execute the openssl command
+    LOG(INFO) << "Executing: " << cmd;
+    int res = system(cmd.c_str());
+    if (res != 0) {
+      LOG(WARNING) << "Error executing open ssl command. result = " << res;
+    }
+
+    // get the results from the temporary files
+    std::string out = utils::ReadFileToUtf8String(csr_filename);
+    csr_ = GetCertSection(out,
+                          "-----BEGIN CERTIFICATE REQUEST-----",
+                          "-----END CERTIFICATE REQUEST-----");
+    public_key_ = GetCertSection(out,
+                                 "-----BEGIN PUBLIC KEY-----",
+                                 "-----END PUBLIC KEY-----");
+    private_key_ = utils::ReadFileToUtf8String(private_key_filename);
+
+    // remove temporary files
+    unlink(csr_filename.c_str());
+    unlink(private_key_filename.c_str());
+
+    return csr_;
+  }
+
+  virtual std::string BuildCertificate(const std::string& content) {
+    return content;
+  }
+
+ private:
+  // Return the substring of 's'
+  // starting with 'begin' and ending with 'end' (inclusive)
+  std::string GetCertSection(const std::string& s,
+                             const std::string& begin,
+                             const std::string& end) {
+    std::string::size_type idx0 = s.find(begin);
+    std::string::size_type idx1 = s.find(end);
+    if (idx0 == std::string::npos || idx1 == std::string::npos) {
+      LOG(WARNING) << "Unable to find section: ["
+                   << begin << ", " << end << "]";
+      LOG(WARNING) << "In:\n" << s;
+      return std::string();
+    }
+    return s.substr(idx0, (idx1 + end.length()) - idx0);
+  }
+
+  std::string cert_passphrase_;
+  std::string csr_;
+  std::string certificate_;
+  std::string private_key_;
+  std::string public_key_;
+};
 
 // Class Pkcs11SlotHandlerInMemory
 // Stores the contents of slots in memory, used for testing the interface.
@@ -88,7 +165,7 @@ class Pkcs11SlotHandlerInMemory : public Pkcs11SlotHandler {
   }
 
   virtual bool AddCertificate(const std::string& label,
-                              Certificate* cert) {
+                              const std::string& cert) {
     Slot* slot = GetSlot(label);
     if (!slot) {
       LOG(WARNING) << "BuildSlotToken must be called before AddCertificate";
@@ -104,11 +181,11 @@ class Pkcs11SlotHandlerInMemory : public Pkcs11SlotHandler {
       LOG(WARNING) << "RemoveCertificate called on nonexistant slot";
       return false;
     }
-    slot->cert_ = NULL;
+    slot->cert_.clear();
     return true;
   }
 
-  virtual Certificate* GetCertificate(const std::string& label) const {
+  virtual std::string GetCertificate(const std::string& label) const {
     const Slot* slot = GetSlot(label);
     if (!slot) {
       LOG(WARNING) << "GetCertificate called on nonexistant slot";
@@ -135,7 +212,7 @@ class Pkcs11SlotHandlerInMemory : public Pkcs11SlotHandler {
     return slot->publicKey_;
   }
 
-  virtual std::vector<std::string> GetSlots() const {
+  virtual std::vector<std::string> GetSlotNames() const {
     std::vector<std::string> slotnames;
     for (SlotMap::const_iterator iter = slots_.begin();
          iter != slots_.end(); ++iter) {
@@ -146,10 +223,9 @@ class Pkcs11SlotHandlerInMemory : public Pkcs11SlotHandler {
 
  private:
   struct Slot {
-    Slot() : cert_(NULL) {}
     std::string keyIdentifier_;
     std::string publicKey_;
-    Certificate* cert_;
+    std::string cert_;
   };
 
   const Slot* GetSlot(const std::string& label) const {
@@ -358,7 +434,7 @@ class SlotToken : public JSObjectWrapper<SlotToken> {
   std::string publicKey() const {
     return slot_handler()->GetPublicKey(label_);
   }
-  Certificate* certificate() const {
+  std::string certificate() const {
     return slot_handler()->GetCertificate(label_);
   }
 
@@ -436,7 +512,7 @@ static v8::Handle<v8::Value> dispatch_addCertificate(
   }
 
   // Access the slot handler and add the Certificate
-  slot->slot_handler()->AddCertificate(slot->label(), cert);
+  slot->slot_handler()->AddCertificate(slot->label(), cert->certificate());
 
   // Add the certificate to the JS object
   slot->obj()->Set(v8::String::NewSymbol("certificate"), cert->obj());
@@ -519,7 +595,7 @@ bool Pkcs11::Initialize() {
   }
   if (certificate_handler_.get() == NULL) {
     // Default certificate handler.
-    certificate_handler_.reset(new Pkcs11CertificateHandlerLocalFile("", ""));
+    certificate_handler_.reset(new Pkcs11CertificateHandlerOpenSsl());
     certificate_handler_->Initialize();
   }
   // The certificate handler may need access to the slot handler

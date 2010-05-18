@@ -37,12 +37,12 @@ class Pkcs11SlotHandler {
   virtual bool GenerateKeyPair(const std::string& label,
                                const std::string& keyid) = 0;
   virtual bool AddCertificate(const std::string& label,
-                              Certificate* cert) = 0;
+                              const std::string& cert) = 0;
   virtual bool RemoveCertificate(const std::string& label) = 0;
-  virtual Certificate* GetCertificate(const std::string& label) const = 0;
+  virtual std::string GetCertificate(const std::string& label) const = 0;
   virtual std::string GetKeyIdentifier(const std::string& label) const = 0;
   virtual std::string GetPublicKey(const std::string& label) const = 0;
-  virtual std::vector<std::string> GetSlots() const = 0;
+  virtual std::vector<std::string> GetSlotNames() const = 0;
 };
 
 // Pure Interface class for defining certificate handlers.

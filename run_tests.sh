@@ -92,13 +92,18 @@ greptest "http-badrequest.js" "First argument must be a Request object"
 greptest "http-redirect.js" "HTTP COMPLETE"
 
 # Pkcs11 tests.
-greptest "pkcs11.js" \
+greptest "--policy=test_data/pkcs11.js --csr-file=test_data/csr_test.pem" \
 '{"slot1":{"label":"slot1","keyIdentifier":"key1",'\
 '"publicKey":"<This is a public key>",'\
 '"certificate":{"content":"<Certificate content=content1 />"}},'\
 '"slot2":{"label":"slot2","keyIdentifier":"key2",'\
 '"publicKey":"<This is a public key>",'\
-'"certificate":{"content":"<Certificate content=content2 />"}}}'
+'"certificate":{"content":"<Certificate content=content2 />"}}}' \
+"pkcs11.js"
+greptest "pkcs11-openssl.js" \
+'{"slot1":{"label":"slot1","keyIdentifier":"key1",'\
+'"publicKey":"<This is a public key>",'\
+'"certificate":{"content":"content1'
 greptest 'pkcs11-cert.js '\
 '--csr-file=test_data/csr_test.pem --cert-file=test_data/cert_test.pem' \
 '{"slot1":{"label":"slot1",'\
