@@ -62,6 +62,7 @@ class HttpRequest : public JSObjectWrapper<HttpRequest> {
   std::string GetString(const std::string& name);
   utils::StringList GetStringList(const std::string& name,
                                   const std::string& delim);
+  std::string GetUrlEncodedParams();
 
   // Interface for HTTP (HttpMessengerInterface class)
   void SetUrl(const std::string& url) { url_ = url; }
@@ -132,6 +133,27 @@ std::string HttpRequest::GetString(const std::string& name) {
 utils::StringList HttpRequest::GetStringList(const std::string& name,
                                              const std::string& delim) {
   return utils::GetPropertyAsStringList(obj(), name, delim);
+}
+
+std::string HttpRequest::GetUrlEncodedParams() {
+  // Set parameter string
+  utils::StringList params = GetStringList("params", "=");
+
+  if (params.size()) {
+    std::string paramstr;
+
+    for (utils::StringList::iterator iter = params.begin();
+         iter != params.end(); ++iter) {
+      std::string p = *iter;
+      if (iter != params.begin())
+        paramstr += "&";
+      paramstr += p;
+    }
+
+    return paramstr;
+  }
+
+  return "";
 }
 
 // Set the following JS properties and call 'onComplete' if defined
@@ -213,6 +235,7 @@ class HttpCurlEasy : public HttpMessengerInterface
  private:
   static CURL* CurlInit();
   static void CurlCleanup(CURL* handle);
+  static bool CurlSetupMultipartPost(HttpRequest* request, CURL* handle);
   static bool CurlSetupRequest(HttpRequest* request, CURL* handle);
   static bool CurlSendRequest(HttpRequest* request, CURL* handle);
   static size_t HttpWriteCallback(void *ptr, size_t size,
@@ -405,18 +428,8 @@ bool HttpCurlEasy::HttpGet(HttpRequest* request) {
     return false;
 
   // Set parameter string
-  utils::StringList params = request->GetStringList("params", "=");
+  std::string params = request->GetUrlEncodedParams();
   if (params.size()) {
-    std::string paramstr;
-
-    for (utils::StringList::iterator iter = params.begin();
-         iter != params.end(); ++iter) {
-      std::string p = *iter;
-      if (iter != params.begin())
-        paramstr += "&";
-      paramstr += p;
-    }
-
     // Append parameters to the url string
     std::string url = request->GetUrl();
     if (url.find('?') == std::string::npos) {
@@ -425,7 +438,7 @@ bool HttpCurlEasy::HttpGet(HttpRequest* request) {
       url.append("&");
     }
 
-    request->SetUrl(url + paramstr);
+    request->SetUrl(url + params);
   }
 
   if (!CurlSetupRequest(request, handle))
@@ -435,16 +448,10 @@ bool HttpCurlEasy::HttpGet(HttpRequest* request) {
   return true;
 }
 
-// Sets up the curl POST request and adds it to the request list.
-// The request will get sent the next time Update() is called.
-bool HttpCurlEasy::HttpPost(HttpRequest* request) {
-  if (!request)
-    return false;
-
-  CURL* handle = CurlInit();
-  if (!handle)
-    return false;
-
+// TODO(rginda): This should be hooked back up and retested so that policies
+// can optionally perform multipart posts.  It's dead code at the moment.
+// static
+bool HttpCurlEasy::CurlSetupMultipartPost(HttpRequest* request, CURL* handle) {
   // Set form data
   utils::StringList params = request->GetStringList("params", "=");
   struct curl_httppost *formpost = NULL;
@@ -464,9 +471,27 @@ bool HttpCurlEasy::HttpPost(HttpRequest* request) {
   }
 
   CURLcode code = curl_easy_setopt(handle, CURLOPT_HTTPPOST, formpost);
-  if (code != CURLE_OK) {
-    utils::ThrowV8Exception(std::string("Error setting curl form data."));
+  return (code == CURLE_OK);
+}
+
+// Sets up the curl POST request and adds it to the request list.
+// The request will get sent the next time Update() is called.
+bool HttpCurlEasy::HttpPost(HttpRequest* request) {
+  if (!request)
     return false;
+
+  CURL* handle = CurlInit();
+  if (!handle)
+    return false;
+
+  std::string paramstr = request->GetUrlEncodedParams();
+  if (paramstr.length() > 0) {
+    CURLcode code = curl_easy_setopt(handle, CURLOPT_COPYPOSTFIELDS,
+                                     paramstr.c_str());
+    if (code != CURLE_OK) {
+      utils::ThrowV8Exception(std::string("Error setting curl form data."));
+      return false;
+    }
   }
 
   if (!CurlSetupRequest(request, handle))
