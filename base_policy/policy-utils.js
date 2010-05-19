@@ -3,6 +3,59 @@
 // found in the LICENSE file.
 
 /**
+ * Check the validity of the policy extension manifest.
+ *
+ * This function is invoked by entd before the policy is loaded in order to
+ * check the validity of the extension manifest.  If this function returns
+ * false, entd exits and does not restart until the next user logs in.
+ *
+ * @param manifest {object} The deserialized extension manifest for the
+ *   enterprise policy.
+ */
+
+entd.verifyManifest =
+function verifyManifest(manifest) {
+  function fail(msg) {
+    entd.syslog.error('verifyManifest: ' + msg);
+    return false;
+  };
+
+  if (!('name' in manifest) || typeof manifest.name != 'string')
+    return fail('Invalid or missing "name"');
+
+  if (!manifest.name.match(/chrom(e|ium)\s?os enterprise policy/i))
+    return fail('Invalid manifest name: ' + manifest.name);
+
+  if (!('description' in manifest) || typeof manifest.description != 'string')
+    return fail('Invalid or missing "description"');
+
+  var ary = manifest.description.match(
+      /chrom(?:e|ium)\s?os enterprise policy for (\S+)(\s+.*)?/i);
+  if (!ary)
+    return fail('Invalid manifest description: ' + manifest.description);
+
+  try {
+    entd.hostname = ary[1];
+  } catch (ex) {
+    return fail('Error setting hostname to "' + ary[1] + '": ' + ex);
+  }
+
+  if (manifest.permissions) {
+    perms = manifest.permissions;
+    if (typeof perms == "string")
+      perms = [ perms ];
+
+    if (!(perms instanceof Array))
+      return fail('Invalid type for permissions: ' + perms);
+
+    if (perms.length != 1 || perms[0].indexOf("http://127.0.0.1") != 0)
+      return fail('Invalid permissions: ' + perms);
+  }
+
+  return true;
+}
+
+/**
  * TODO(rginda): Remove these stubs as the native API gets implemented.
  */
 

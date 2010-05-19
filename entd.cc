@@ -444,6 +444,32 @@ bool Entd::StartScriptingEnvironment() {
       LOG(ERROR) << "Error in utility file.";
       return false;
     }
+
+    if (entd->Has(v8::String::NewSymbol("verifyManifest"))) {
+      v8::TryCatch try_catch;
+
+      v8::Handle<v8::Value> arg;
+      if (manifest.IsEmpty()) {
+        arg = v8::Null();
+      } else {
+        arg = manifest;
+      }
+
+      value = utils::CallV8Function(entd, "verifyManifest", 1, &arg);
+      if (try_catch.HasCaught()) {
+        // Failed due to V8 exception
+        utils::ReportV8Exception(&try_catch);
+        return false;
+      } else if (value.IsEmpty()) {
+        // Failed for other reasons
+        return false;
+      }
+
+      if (!value->IsBoolean() || value->BooleanValue() != true) {
+        LOG(ERROR) << "Utility file vetoed the extension manifest.";
+        return false;
+      }
+    }
   }
 
   // Load the policy file.
@@ -513,6 +539,7 @@ bool Entd::StopScriptingEnvironment() {
   return true;
 }
 
+// See comments in main.cc about the return values.
 uint32_t Entd::Run() {
   exit_code_ = 0;
 
@@ -548,8 +575,18 @@ uint32_t Entd::Run() {
     event_del(&ev_SIGTERM);
   }
 
-  if (!StopScriptingEnvironment())
-    return 2;
+  if (!StopScriptingEnvironment()) {
+    if (exit_code_ == 2) {
+      // The policy was asking for a restart.  We failed to shut down for some
+      // reason, but would still like to honor the restart.
+      return 3;
+    }
+
+    if (exit_code_ < 2) {
+      // We weren't going to restart anyway.
+      return 1;
+    }
+  }
 
   return exit_code_;
 }

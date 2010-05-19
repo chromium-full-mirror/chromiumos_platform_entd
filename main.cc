@@ -41,6 +41,15 @@ static const char *kAllowDirtyExit = "allow-dirty-exit";
 
 }  // namespace switches
 
+// Return values:
+//   0: Entd completed successfully and should not be restarted.
+//   1: Entd encountered a failure, but will probably fail again if restarted,
+//      so please don't.
+//   2: Entd has NOT encountered a failure, but would like to be restarted.
+//  >2: Entd has encountered a failure, restarting may help.
+//
+// So, exit with a zero or one means leave it down, otherwise restart.
+//
 int main(int argc, char** argv) {
   LOG(INFO) << "Starting entd";
 
