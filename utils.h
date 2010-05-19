@@ -27,17 +27,11 @@ const char* ToCString(const v8::String::Utf8Value& value);
 // Checks to see if the string contains only characters legal in a domain name
 bool CheckHostnameCharset(const std::string& str);
 
-// Reads a file into a std::string.
-std::string ReadFileToUtf8String(const std::string& name);
-
 // Reads a file into a V8 String.
 v8::Handle<v8::String> ReadFile(const std::string& name);
 
 // Reads the contents of a directory into an array of file/dir names.
 std::vector<std::string> ReadDirectory(const std::string& path);
-
-// Returns true if a file exists and can be read.
-bool FileExists(const std::string& filepath);
 
 // Expands any environment variables, including ~ and ~user
 // Asumes that path is a single word.

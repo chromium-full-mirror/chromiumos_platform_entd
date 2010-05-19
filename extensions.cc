@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <base/basictypes.h>
+#include <base/file_util.h>
 #include <base/logging.h>
 
 #include "entd/utils.h"
@@ -86,8 +87,8 @@ class Extension {
       InitPolicyFiles();
     for (FileList::const_iterator iter = s_policy_files_.begin();
          iter != s_policy_files_.end(); ++iter) {
-      std::string filepath = path_ + "/" + *iter;
-      if (!utils::FileExists(filepath)) {
+      FilePath filepath = FilePath(path_).Append(*iter);
+      if (!file_util::PathExists(filepath)) {
         return false;
       }
     }

@@ -4,9 +4,10 @@
 
 entd.onLoad =
 function onLoad(manifest) {
-  var slot1 = new entd.pkcs11.SlotToken("slot1");
+  var slot1 = new entd.pkcs11.SlotObject("slot1");
   // println("slot1: " + slot1.toString());
-  slot1.generateKeyPair("key1");
+  var passphrase = "000000";
+  slot1.generateKeyPair("key1", passphrase);
   var subj1 = "/C=US/ST=California/L=Mountain View/O=Google Inc"
 "/OU=ChromeOS/CN=user.onex.corp.google.com"
 "/emailAddress=user@google.com";
@@ -21,4 +22,9 @@ function onLoad(manifest) {
 
   println("Slots:");
   println(JSON.stringify(entd.pkcs11.slots));
+
+  var filename = "cert.pem";
+  println("Writing certificate to: " + filename);
+
+  writeToFile(cert1.toString(), filename);
 }

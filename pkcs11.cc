@@ -7,8 +7,10 @@
 #include <iostream>
 #include <map>
 #include <string>
+#include <tr1/memory>
 
 #include <base/basictypes.h>
+#include <base/file_util.h>
 #include <base/logging.h>
 #include <base/scoped_ptr.h>
 #include <curl/curl.h>
@@ -16,6 +18,55 @@
 #include "entd/utils.h"
 
 namespace entd {
+
+// Class SlotObject declaration (implementation below)
+// SlotObject JavaScript interface wrapper around Pkcs11SlotHandler.
+class SlotObject : public JSObjectWrapper<SlotObject> {
+ public:
+  SlotObject() : slot_handler_(NULL) { }
+  virtual ~SlotObject() {}
+
+  virtual bool Initialize();
+
+  // JSObjectWrapper Interface
+  virtual void ParseConstructorArgs(
+      v8::Handle<v8::Object> obj, const v8::Arguments& args);
+  static void SetTemplateBindings(
+      v8::Handle<v8::ObjectTemplate> template_object);
+  static const char* GetClassName() { return "SlotObject"; }
+
+  // Accessors
+  const std::string& label() const { return label_; }
+  const std::string& keyIdentifier() const { return key_identifier_; }
+  const std::string& passphrase() const { return passphrase_; }
+  std::string publicKey() const {
+    return slot_handler()->GetPublicKey(label_);
+  }
+  std::string certificate() const {
+    return slot_handler()->GetCertificate(label_);
+  }
+  Pkcs11SlotHandler* slot_handler() const { return slot_handler_; }
+
+  // Setters
+  const void SetKeyIdentifier(const std::string& id) {
+    key_identifier_ = id;
+  }
+  const void SetPassphrase(const std::string& passphrase) {
+    passphrase_ = passphrase;
+  }
+  void SetSlotHandler(Pkcs11SlotHandler* slot_handler) {
+    slot_handler_ = slot_handler;
+  }
+
+ private:
+  std::string label_;
+  std::string key_identifier_;
+  std::string passphrase_;
+  Pkcs11SlotHandler* slot_handler_;
+
+  DISALLOW_COPY_AND_ASSIGN(SlotObject);
+};
+
 
 // class Pkcs11CertificateHandlerLocalFile
 // Use local files as a CSR and/or Certificate.
@@ -32,10 +83,10 @@ Pkcs11CertificateHandlerLocalFile::Pkcs11CertificateHandlerLocalFile(
 
 // virtual
 std::string Pkcs11CertificateHandlerLocalFile::BuildCSR(
-    const std::string& subject) {
+    const std::string& label, const std::string& subject) {
   std::string csr;
   if (!csr_filename_.empty())
-    csr = utils::ReadFileToUtf8String(csr_filename_);
+    file_util::ReadFileToString(FilePath(csr_filename_), &csr);
   if (csr.empty())
     csr =  std::string("<CSR subject=") + subject + " />";
   return csr;
@@ -46,7 +97,7 @@ std::string Pkcs11CertificateHandlerLocalFile::BuildCertificate(
     const std::string& content) {
   std::string cert;
   if (!certificate_filename_.empty())
-    cert = utils::ReadFileToUtf8String(certificate_filename_);
+    file_util::ReadFileToString(FilePath(certificate_filename_), &cert);
   if (cert.empty())
     cert = std::string("<Certificate content=") + content + " />";
   return cert;
@@ -56,18 +107,20 @@ std::string Pkcs11CertificateHandlerLocalFile::BuildCertificate(
 // Implements CSR generation using 'system("openssl req...")'.
 class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
  public:
-  Pkcs11CertificateHandlerOpenSsl()
-      : cert_passphrase_("") {
-  }
+  Pkcs11CertificateHandlerOpenSsl() {}
 
   virtual ~Pkcs11CertificateHandlerOpenSsl() {}
 
   virtual bool Initialize() { return true; }
 
-  virtual std::string BuildCSR(const std::string& subject) {
+  virtual std::string BuildCSR(const std::string& label,
+                               const std::string& subject) {
     // temporary filenames
     const std::string private_key_filename = "privkey";
     const std::string csr_filename = "csr";
+
+    // Get the passphrase for the private key from the slot handler
+    std::string passphrase = slot_handler()->GetPassphrase(label);
 
     // build the openssl command
     std::string cmd =
@@ -75,25 +128,26 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
         + " -keyout " + private_key_filename
         + " -subj \"" + subject + "\""
         + " -pubkey -out " + csr_filename;
-    if (!cert_passphrase_.empty())
-      cmd += " -passout pass:" + cert_passphrase_;
+    if (!passphrase.empty())
+      cmd += " -passout pass:" + passphrase;
 
     // execute the openssl command
-    LOG(INFO) << "Executing: " << cmd;
     int res = system(cmd.c_str());
     if (res != 0) {
       LOG(WARNING) << "Error executing open ssl command. result = " << res;
     }
 
     // get the results from the temporary files
-    std::string out = utils::ReadFileToUtf8String(csr_filename);
-    csr_ = GetCertSection(out,
-                          "-----BEGIN CERTIFICATE REQUEST-----",
-                          "-----END CERTIFICATE REQUEST-----");
-    public_key_ = GetCertSection(out,
-                                 "-----BEGIN PUBLIC KEY-----",
-                                 "-----END PUBLIC KEY-----");
-    private_key_ = utils::ReadFileToUtf8String(private_key_filename);
+    std::string csr_output;
+    if (file_util::ReadFileToString(FilePath(csr_filename), &csr_output)) {
+      csr_ = GetCertSection(csr_output,
+                            "-----BEGIN CERTIFICATE REQUEST-----",
+                            "-----END CERTIFICATE REQUEST-----");
+      public_key_ = GetCertSection(csr_output,
+                                   "-----BEGIN PUBLIC KEY-----",
+                                   "-----END PUBLIC KEY-----");
+    }
+    file_util::ReadFileToString(FilePath(private_key_filename), &private_key_);
 
     // remove temporary files
     unlink(csr_filename.c_str());
@@ -102,8 +156,11 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
     return csr_;
   }
 
+  // Include the private key (encoded with the SlotObject's passphrase)
+  // with the certificate so that it can be decoded with the passphrase.
   virtual std::string BuildCertificate(const std::string& content) {
-    return content;
+    certificate_ = content + private_key_;
+    return certificate_;
   }
 
  private:
@@ -123,7 +180,6 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
     return s.substr(idx0, (idx1 + end.length()) - idx0);
   }
 
-  std::string cert_passphrase_;
   std::string csr_;
   std::string certificate_;
   std::string private_key_;
@@ -135,139 +191,154 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
 class Pkcs11SlotHandlerInMemory : public Pkcs11SlotHandler {
  private:
   // Forward declarations and private typedefs.
-  struct Slot;
-  typedef std::map<std::string, Slot*> SlotMap;
+  struct Object;
+  typedef std::map<std::string, std::tr1::shared_ptr<Object> > ObjectMap;
 
  public:
   Pkcs11SlotHandlerInMemory() { }
   virtual bool Initialize() { return true; }
 
-  virtual bool BuildSlotToken(const std::string& label) {
-    if (GetSlot(label) != NULL) {
+  virtual bool BuildSlotObject(const std::string& label) {
+    if (label.empty()) {
+      LOG(ERROR) << "BuildSlotObject called with empty label.";
+      return false;
+    }
+    if (GetObject(label) != NULL) {
+      LOG(ERROR) << "BuildSlotObject called on existing object: " << label;
       return false;
     } else {
-      AddSlot(label);
+      AddObject(label);
       return true;
     }
   }
 
-  // No-op (just save the keyIdentifier)
+  // No-op (just save the key identifier and passphrase)
   virtual bool GenerateKeyPair(const std::string& label,
-                               const std::string& keyid) {
-    Slot* slot = GetSlot(label);
-    if (!slot) {
-      LOG(WARNING) << "BuildSlotToken must be called before GenerateKeyPair";
+                               const std::string& keyid,
+                               const std::string& passphrase) {
+    Object* obj = GetObject(label);
+    if (!obj) {
+      LOG(WARNING) << "BuildSlotObject must be called before GenerateKeyPair";
       return false;
     }
-    slot->keyIdentifier_ = keyid;
-    slot->publicKey_ = "<This is a public key>";
+    obj->key_identifier_ = keyid;
+    obj->passphrase_ = passphrase;
+    obj->publicKey_ = "<This is a public key>";
     return true;
   }
 
   virtual bool AddCertificate(const std::string& label,
                               const std::string& cert) {
-    Slot* slot = GetSlot(label);
-    if (!slot) {
-      LOG(WARNING) << "BuildSlotToken must be called before AddCertificate";
+    Object* obj = GetObject(label);
+    if (!obj) {
+      LOG(WARNING) << "BuildSlotObject must be called before AddCertificate";
       return false;
     }
-    slot->cert_ = cert;
+    obj->cert_ = cert;
     return true;
   }
 
   virtual bool RemoveCertificate(const std::string& label) {
-    Slot* slot = GetSlot(label);
-    if (!slot) {
-      LOG(WARNING) << "RemoveCertificate called on nonexistant slot";
+    Object* obj = GetObject(label);
+    if (!obj) {
+      LOG(WARNING) << "RemoveCertificate called on nonexistant object";
       return false;
     }
-    slot->cert_.clear();
+    obj->cert_.clear();
     return true;
   }
 
   virtual std::string GetCertificate(const std::string& label) const {
-    const Slot* slot = GetSlot(label);
-    if (!slot) {
-      LOG(WARNING) << "GetCertificate called on nonexistant slot";
+    const Object* obj = GetObject(label);
+    if (!obj) {
+      LOG(WARNING) << "GetCertificate called on nonexistant object";
       return NULL;
     }
-    return slot->cert_;
+    return obj->cert_;
   }
 
   virtual std::string GetKeyIdentifier(const std::string& label) const {
-    const Slot* slot = GetSlot(label);
-    if (!slot) {
-      LOG(WARNING) << "GetKeyIdentifier called on nonexistant slot";
+    const Object* obj = GetObject(label);
+    if (!obj) {
+      LOG(WARNING) << "GetKeyIdentifier called on nonexistant object";
       return NULL;
     }
-    return slot->keyIdentifier_;
+    return obj->key_identifier_;
+  }
+
+  virtual std::string GetPassphrase(const std::string& label) const {
+    const Object* obj = GetObject(label);
+    if (!obj) {
+      LOG(WARNING) << "GetPassphrase called on nonexistant object";
+      return NULL;
+    }
+    return obj->passphrase_;
   }
 
   virtual std::string GetPublicKey(const std::string& label) const {
-    const Slot* slot = GetSlot(label);
-    if (!slot) {
-      LOG(WARNING) << "GetPublicKey called on nonexistant slot";
+    const Object* obj = GetObject(label);
+    if (!obj) {
+      LOG(WARNING) << "GetPublicKey called on nonexistant object";
       return NULL;
     }
-    return slot->publicKey_;
+    return obj->publicKey_;
   }
 
-  virtual std::vector<std::string> GetSlotNames() const {
-    std::vector<std::string> slotnames;
-    for (SlotMap::const_iterator iter = slots_.begin();
-         iter != slots_.end(); ++iter) {
-      slotnames.push_back(iter->first);
+  virtual std::vector<std::string> GetObjectNames() const {
+    std::vector<std::string> objnames;
+    for (ObjectMap::const_iterator iter = objects_.begin();
+         iter != objects_.end(); ++iter) {
+      objnames.push_back(iter->first);
     }
-    return slotnames;
+    return objnames;
   }
 
  private:
-  struct Slot {
-    std::string keyIdentifier_;
+  struct Object {
+    std::string key_identifier_;
+    std::string passphrase_;
     std::string publicKey_;
     std::string cert_;
   };
 
-  const Slot* GetSlot(const std::string& label) const {
-    SlotMap::const_iterator iter = slots_.find(label);
-    if (iter == slots_.end())
+  const Object* GetObject(const std::string& label) const {
+    ObjectMap::const_iterator iter = objects_.find(label);
+    if (iter == objects_.end())
       return NULL;
     else
-      return iter->second;
+      return iter->second.get();
   }
 
-  Slot* GetSlot(const std::string& label) {
-    SlotMap::iterator iter = slots_.find(label);
-    if (iter == slots_.end())
+  Object* GetObject(const std::string& label) {
+    ObjectMap::iterator iter = objects_.find(label);
+    if (iter == objects_.end())
       return NULL;
     else
-      return iter->second;
+      return iter->second.get();
   }
 
-  Slot* AddSlot(const std::string& label) {
-    SlotMap::iterator iter = slots_.find(label);
-    if (iter != slots_.end()) {
-      return iter->second;
+  Object* AddObject(const std::string& label) {
+    ObjectMap::iterator iter = objects_.find(label);
+    if (iter != objects_.end()) {
+      return iter->second.get();
     } else {
-      Slot* slot = new Slot;
-      slots_[label] = slot;
-      return slot;
+      Object* obj = new Object;
+      objects_.insert(std::make_pair(label, obj));
+      return obj;
     }
   }
 
-  bool RemoveSlot(const std::string& label) {
-    SlotMap::iterator iter = slots_.find(label);
-    if (iter == slots_.end()) {
+  bool RemoveObject(const std::string& label) {
+    ObjectMap::iterator iter = objects_.find(label);
+    if (iter == objects_.end()) {
       return false;
     } else {
-      Slot* slot = iter->second;
-      delete slot;
-      slots_.erase(iter);
+      objects_.erase(iter);  // Will delete Object
       return true;
     }
   }
 
-  SlotMap slots_;
+  ObjectMap objects_;
   DISALLOW_COPY_AND_ASSIGN(Pkcs11SlotHandlerInMemory);
 };
 
@@ -299,6 +370,7 @@ class CSR : public JSObjectWrapper<CSR> {
 
  private:
   std::string request_;
+
   static Pkcs11CertificateHandler* certificate_handler_;
 
   DISALLOW_COPY_AND_ASSIGN(CSR);
@@ -334,12 +406,21 @@ void CSR::ParseConstructorArgs(
     return;
   }
 
-  // Argument is the subject
+  // Extract the SlotObject
+  SlotObject* slot_object =
+      reinterpret_cast<SlotObject*>(v8::External::Unwrap(args.Data()));
+  if (!slot_object) {
+    utils::ThrowV8Exception("Data argument is not a SlotObject.");
+    return;
+  }
+
+  // Argument 0 is the subject
   v8::Handle<v8::Value> subject = args[0];
   obj->Set(v8::String::NewSymbol("subject"), subject->ToString());
 
   // Build the CSR request
-  request_ = certificate_handler()->BuildCSR(utils::ValueAsUtf8String(subject));
+  request_ = certificate_handler()->BuildCSR(slot_object->label(),
+                                             utils::ValueAsUtf8String(subject));
 }
 
 
@@ -414,52 +495,25 @@ void Certificate::ParseConstructorArgs(v8::Handle<v8::Object> obj,
 }
 
 
-// Class SlotToken
-// SlotToken JavaScript interface wrapper around Pkcs11SlotHandler.
-class SlotToken : public JSObjectWrapper<SlotToken> {
- public:
-  SlotToken() : slot_handler_(NULL) { }
-  virtual ~SlotToken() {}
+// Class SlotObject Implementation
 
-  // JSObjectWrapper Interface
-  virtual void ParseConstructorArgs(
-      v8::Handle<v8::Object> obj, const v8::Arguments& args);
-  static void SetTemplateBindings(
-      v8::Handle<v8::ObjectTemplate> template_object);
-  static const char* GetClassName() { return "SlotToken"; }
+bool SlotObject::Initialize() {
+  // Bind "CSR" here so we can associate this with it
+  v8::Handle<v8::FunctionTemplate> t = GetTemplate();
+  v8::Handle<v8::ObjectTemplate> t_obj = t->InstanceTemplate();
+  t_obj->Set(v8::String::NewSymbol("CSR"),
+             v8::FunctionTemplate::New(CSR::Construct,
+                                       v8::External::Wrap(this)),
+             v8::ReadOnly);
 
-  // Accessors
-  const std::string& label() const { return label_; }
-  const std::string& keyIdentifier() const { return keyIdentifier_; }
-  std::string publicKey() const {
-    return slot_handler()->GetPublicKey(label_);
-  }
-  std::string certificate() const {
-    return slot_handler()->GetCertificate(label_);
-  }
-
-  // Setter
-  const void SetKeyIdentifier(const std::string& id) {
-    keyIdentifier_ = id;
-  }
-
-  void SetSlotHandler(Pkcs11SlotHandler* slot_handler) {
-    slot_handler_ = slot_handler;
-  }
-  Pkcs11SlotHandler* slot_handler() const { return slot_handler_; }
-
- private:
-  std::string label_;
-  std::string keyIdentifier_;
-  Pkcs11SlotHandler* slot_handler_;
-
-  DISALLOW_COPY_AND_ASSIGN(SlotToken);
-};
+  // Build and initialize the V8 object.
+  return JSObjectWrapper<SlotObject>::Initialize();
+}
 
 static v8::Handle<v8::Value> dispatch_generateKeyPair(
     const v8::Arguments& args) {
   // Get the arguments.
-  SlotToken* slot = SlotToken::Unwrap(args.This());
+  SlotObject* slot = SlotObject::Unwrap(args.This());
   if (slot == NULL) {
     utils::ThrowV8Exception("Method called on incorrect object type.");
     return v8::False();
@@ -469,14 +523,22 @@ static v8::Handle<v8::Value> dispatch_generateKeyPair(
     return v8::False();
   }
 
-  // Argument is the key identifier
+  // Argument 0 is the key identifier
   v8::Handle<v8::Value> v8keyid = args[0];
   slot->obj()->Set(v8::String::NewSymbol("keyIdentifier"), v8keyid->ToString());
   std::string keyid = utils::ValueAsUtf8String(v8keyid);
   slot->SetKeyIdentifier(keyid);
 
+  // Argumnet 1 is the passphrase (optional)
+  std::string passphrase;  // defaults to empty
+  if (args.Length() >= 2) {
+    passphrase = utils::ValueAsUtf8String(args[1]);
+  }
+  slot->SetPassphrase(passphrase);
+
   // Access the slot handler and generate the public/private key pair
-  bool res = slot->slot_handler()->GenerateKeyPair(slot->label(), keyid);
+  bool res = slot->slot_handler()->GenerateKeyPair(
+      slot->label(), keyid, passphrase);
   if (!res) {
     LOG(ERROR) << "Unable to build key pair with label: " << keyid;
     return v8::False();
@@ -493,7 +555,7 @@ static v8::Handle<v8::Value> dispatch_generateKeyPair(
 static v8::Handle<v8::Value> dispatch_addCertificate(
     const v8::Arguments& args) {
   // Get the arguments.
-  SlotToken* slot = SlotToken::Unwrap(args.This());
+  SlotObject* slot = SlotObject::Unwrap(args.This());
   if (slot == NULL) {
     utils::ThrowV8Exception("Method called on incorrect object type.");
     return v8::False();
@@ -521,13 +583,12 @@ static v8::Handle<v8::Value> dispatch_addCertificate(
 }
 
 // static
-void SlotToken::SetTemplateBindings(
+void SlotObject::SetTemplateBindings(
     v8::Handle<v8::ObjectTemplate> template_object) {
+  // "CSR" is set in Initialize so it can include
+  // a pointer back to the SlotObject.
   template_object->Set(v8::String::NewSymbol("generateKeyPair"),
                        v8::FunctionTemplate::New(dispatch_generateKeyPair),
-                       v8::ReadOnly);
-  template_object->Set(v8::String::NewSymbol("CSR"),
-                       v8::FunctionTemplate::New(CSR::Construct),
                        v8::ReadOnly);
   template_object->Set(v8::String::NewSymbol("addCertificate"),
                        v8::FunctionTemplate::New(dispatch_addCertificate),
@@ -535,7 +596,7 @@ void SlotToken::SetTemplateBindings(
 }
 
 // virtual
-void SlotToken::ParseConstructorArgs(
+void SlotObject::ParseConstructorArgs(
     v8::Handle<v8::Object> obj, const v8::Arguments& args) {
   if (args.Length() < 1) {
     utils::ThrowV8Exception("Not enough parameters.");
@@ -556,10 +617,10 @@ void SlotToken::ParseConstructorArgs(
   obj->Set(v8::String::NewSymbol("label"), v8label, v8::ReadOnly);
   label_ = std::string(*v8::String::Utf8Value(v8label));
 
-  // Build the SlotToken
-  bool res = pkcs11->slot_handler()->BuildSlotToken(label_);
+  // Build the SlotObject
+  bool res = pkcs11->slot_handler()->BuildSlotObject(label_);
   if (!res) {
-    LOG(ERROR) << "Unable to build slot token with label: " << label_;
+    LOG(ERROR) << "Unable to build SlotObject with label: " << label_;
     return;
   }
 
@@ -606,10 +667,10 @@ bool Pkcs11::Initialize() {
   Certificate::InitCertificateHandler(certificate_handler());
 
   // Initialize the pkcs11 template specially
-  v8::Handle<v8::FunctionTemplate> t = Pkcs11::GetTemplate();
+  v8::Handle<v8::FunctionTemplate> t = GetTemplate();
   v8::Handle<v8::ObjectTemplate> t_obj = t->InstanceTemplate();
-  t_obj->Set(v8::String::NewSymbol("SlotToken"),
-             v8::FunctionTemplate::New(SlotToken::Construct,
+  t_obj->Set(v8::String::NewSymbol("SlotObject"),
+             v8::FunctionTemplate::New(SlotObject::Construct,
                                        v8::External::Wrap(this)),
              v8::ReadOnly);
 
@@ -617,7 +678,7 @@ bool Pkcs11::Initialize() {
   return JSObjectWrapper<Pkcs11>::Initialize();
 }
 
-static v8::Handle<v8::Value> dispatch_removeSlotToken(
+static v8::Handle<v8::Value> dispatch_removeSlotObject(
     const v8::Arguments& args) {
   // Get the arguments.
   Pkcs11* pkcs11 = Pkcs11::Unwrap(args.This());
@@ -630,16 +691,16 @@ static v8::Handle<v8::Value> dispatch_removeSlotToken(
     return v8::False();
   }
 
-  // Argument is a SlotToken object
-  SlotToken* slottoken = SlotToken::GetFromArg(args, 0);
-  if (!slottoken) {
-    utils::ThrowV8Exception("First argument must be a SlotToken.");
+  // Argument is a SlotObject object
+  SlotObject* slotobject = SlotObject::GetFromArg(args, 0);
+  if (!slotobject) {
+    utils::ThrowV8Exception("First argument must be a SlotObject.");
     return v8::False();
   }
 
   // Remove the contents of the slot in the slot handler.
   v8::Local<v8::Value> slotlabel =
-      slottoken->obj()->Get(v8::String::NewSymbol("label"));
+      slotobject->obj()->Get(v8::String::NewSymbol("label"));
   std::string label = utils::ValueAsUtf8String(slotlabel);
   pkcs11->slot_handler()->RemoveCertificate(label);
 
@@ -660,12 +721,12 @@ static v8::Handle<v8::Value> dispatch_removeSlotToken(
 // static
 void Pkcs11::SetTemplateBindings(
     v8::Handle<v8::ObjectTemplate> template_object) {
-  // "SlotToken" gets setup specially in Initialize();
+  // "SlotObject" gets setup specially in Initialize();
   template_object->Set(v8::String::NewSymbol("Certificate"),
                        v8::FunctionTemplate::New(Certificate::Construct),
                        v8::ReadOnly);
   template_object->Set(v8::String::NewSymbol("remove"),
-                       v8::FunctionTemplate::New(dispatch_removeSlotToken),
+                       v8::FunctionTemplate::New(dispatch_removeSlotObject),
                        v8::ReadOnly);
   template_object->Set(v8::String::NewSymbol("slots"),
                        v8::Object::New(),

@@ -33,16 +33,18 @@ class Pkcs11SlotHandler {
  public:
   virtual ~Pkcs11SlotHandler() {}
   virtual bool Initialize() = 0;
-  virtual bool BuildSlotToken(const std::string& label) = 0;
+  virtual bool BuildSlotObject(const std::string& label) = 0;
   virtual bool GenerateKeyPair(const std::string& label,
-                               const std::string& keyid) = 0;
+                               const std::string& keyid,
+                               const std::string& passphrase) = 0;
   virtual bool AddCertificate(const std::string& label,
                               const std::string& cert) = 0;
   virtual bool RemoveCertificate(const std::string& label) = 0;
   virtual std::string GetCertificate(const std::string& label) const = 0;
   virtual std::string GetKeyIdentifier(const std::string& label) const = 0;
+  virtual std::string GetPassphrase(const std::string& label) const = 0;
   virtual std::string GetPublicKey(const std::string& label) const = 0;
-  virtual std::vector<std::string> GetSlotNames() const = 0;
+  virtual std::vector<std::string> GetObjectNames() const = 0;
 };
 
 // Pure Interface class for defining certificate handlers.
@@ -51,7 +53,8 @@ class Pkcs11CertificateHandler {
   Pkcs11CertificateHandler() : slot_handler_(NULL) {}
   virtual ~Pkcs11CertificateHandler() {}
   virtual bool Initialize() = 0;
-  virtual std::string BuildCSR(const std::string& subject) = 0;
+  virtual std::string BuildCSR(const std::string& label,
+                               const std::string& subject) = 0;
   virtual std::string BuildCertificate(const std::string& content) = 0;
   // InitSlotHandler() is called from Pkcs11::Initialize with its
   // Pkcs11SlotHandler implementation for the benefit of certificate handlers
@@ -76,7 +79,8 @@ class Pkcs11CertificateHandlerLocalFile : public Pkcs11CertificateHandler {
                                  const std::string& cert);
   virtual ~Pkcs11CertificateHandlerLocalFile() {}
   virtual bool Initialize() { return true; }
-  virtual std::string BuildCSR(const std::string& subject);
+  virtual std::string BuildCSR(const std::string& label,
+                               const std::string& subject);
   virtual std::string BuildCertificate(const std::string& content);
  private:
   std::string csr_filename_;

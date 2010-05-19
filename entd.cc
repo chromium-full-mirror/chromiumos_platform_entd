@@ -4,10 +4,13 @@
 
 #include "entd/entd.h"
 
+#include <stdio.h>
+
+#include <iostream>
+
+#include <base/file_util.h>
 #include <event.h>
 #include <glib-object.h>
-#include <iostream>
-#include <stdio.h>
 #include <v8.h>
 
 #include "entd/callback_server.h"
@@ -261,6 +264,26 @@ v8::Handle<v8::Value> dispatch_PrintLn(const v8::Arguments& args) {
   return v8::Undefined();
 }
 
+// Called by v8 for the global object's writeToFile() method.
+v8::Handle<v8::Value> dispatch_WriteToFile(const v8::Arguments& args) {
+  if (args.Length() != 2) {
+    utils::ThrowV8Exception("Usage: writeToFile(string, filepath)");
+    return v8::False();
+  }
+  std::string s = utils::ValueAsUtf8String(args[0]);
+  std::string file = utils::ValueAsUtf8String(args[1]);
+  int slen = s.length();
+  int res = -1;
+  if (slen > 0) {
+    res = file_util::WriteFile(FilePath(file), s.c_str(), slen);
+  }
+  if (res < 0 || res != slen) {
+    utils::ThrowV8Exception(std::string("Unable to write file: ") + file);
+    return v8::False();
+  }
+  return v8::True();
+}
+
 Entd::Entd()
     : callback_server_(NULL),
       flimflam_(new Flimflam()),
@@ -366,6 +389,9 @@ bool Entd::StartScriptingEnvironment() {
                        v8::ReadOnly);
   global_template->Set(v8::String::NewSymbol("println"),
                        v8::FunctionTemplate::New(dispatch_PrintLn),
+                       v8::ReadOnly);
+  global_template->Set(v8::String::NewSymbol("writeToFile"),
+                       v8::FunctionTemplate::New(dispatch_WriteToFile),
                        v8::ReadOnly);
   context_ = v8::Context::New(NULL, global_template);
 

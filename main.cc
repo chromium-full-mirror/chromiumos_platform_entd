@@ -7,6 +7,7 @@
 #include <string>
 
 #include <base/command_line.h>
+#include <base/file_util.h>
 #include <base/logging.h>
 
 #include "entd/entd.h"
@@ -62,12 +63,12 @@ int main(int argc, char** argv) {
   }
 
   if (valid_policy) {
-    policy = extension_path + "policy.js";
-    if (!entd::utils::FileExists(policy))
-      policy.clear();
-    manifest = extension_path + "manifest.json";
-    if (!entd::utils::FileExists(manifest))
-      manifest.clear();
+    FilePath policy_path = FilePath(extension_path).Append("policy.js");
+    if (file_util::PathExists(policy_path))
+      policy = policy_path.value();
+    FilePath manifest_path = FilePath(extension_path).Append("manifest.json");
+    if (file_util::PathExists(manifest_path))
+      manifest = manifest_path.value();
   }
 
   // Command line switches for policy files override extension filepaths
