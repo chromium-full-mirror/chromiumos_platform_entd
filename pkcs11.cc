@@ -116,8 +116,8 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
   virtual std::string BuildCSR(const std::string& label,
                                const std::string& subject) {
     // temporary filenames
-    const std::string private_key_filename = "privkey";
-    const std::string csr_filename = "csr";
+    const std::string private_key_filename = "/tmp/privkey";
+    const std::string csr_filename = "/tmp/csr";
 
     // Get the passphrase for the private key from the slot handler
     std::string passphrase = slot_handler()->GetPassphrase(label);
