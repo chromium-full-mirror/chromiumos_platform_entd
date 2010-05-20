@@ -55,45 +55,6 @@ function verifyManifest(manifest) {
   return true;
 }
 
-/**
- * TODO(rginda): Remove these stubs as the native API gets implemented.
- */
-
-entd.pkcs11 = new Object();
-
-entd.pkcs11.slots = {};
-
-entd.pkcs11.store =
-function store(slotId, label, type, data) {
-  var slot = entd.pkcs11.slots[slotId];
-  if (!slot)
-    slot = entd.pkcs11.slots[slotId] = {};
-
-  slot[type] = { label: label, data: data };
-};
-
-entd.tpm = new Object();
-
-entd.tpm.CSR =
-function TPMCSR(subject) {
-  this.subject = subject;
-};
-
-entd.tpm.CSR.prototype.toString =
-function CSRToString() {
-  return 'entd.tpm.CSR: subject: ' + this.subject;
-};
-
-entd.tpm.Certificate =
-function TPMCertificate(bytes) {
-  this.bytes = bytes;
-};
-
-entd.tpm.Certificate.prototype.toString =
-function TPMCertToString() {
-  return 'entd.tpm.Certificate: ' + bytes;
-};
-
 entd.http.RESPONSE_OK = 200;
 
 /**
@@ -208,9 +169,6 @@ function addCertificate(id, params) {
  *     parameter which indicates whether or not this is the first install
  *     of the certificate (parameter is true), or a restart of entd.
  *
- * - 'pkcs11slot': An integer defining the PKCS#11 slot identifier in which
- *     to store the certificate and key matter.
- *
  * - 'csr': An object defining the parameters of the Certificate Signing
  *       Request.  The object may have the following properties:
  *     - 'subject': A string continaing the subject for the CSR.
@@ -251,12 +209,12 @@ function PolicyCertificate(policy, id, params) {
   this.policy = policy;
   this.id = id;
 
-  util.ensureProperties(params, ['label', 'pkcs11slot', 'csr', 'issuer'],
+  util.ensureProperties(params, ['label', 'csr', 'issuer'],
                         'params');
 
   this.label = params.label;
+  this.dummy_passphrase = '0000';
   this.onInstall = params.onInstall;
-  this.pkcs11slot = params.pkcs11slot;
 
   util.ensureProperties(params.csr, ['subject', 'host', 'path'], 'params.csr');
   this.csr = params.csr;
@@ -271,7 +229,7 @@ function PolicyCertificate(policy, id, params) {
       this.setVariable(key, params.variables[key]);
   }
 
-  this.userVariables = params.userVariables || {};
+  this.userVariables = params.userVariables || null;
 
   this.status = this.isInstalled() ? 'Installed' : 'Not Installed';
 
@@ -328,27 +286,46 @@ function cert_replaceVars(str) {
 
 /**
  * Log an information status message about this certificate definition.
+ *
+ * @param  {string} str The informational message to log.
+ * @return {string} The string logged.
  */
 Policy.Certificate.prototype.info =
-function info(str) { this.setStatus_('info', str) };
+function info(str) { return this.setStatus_('info', str) };
 
 /**
  * Log a warning status message about this certificate definition.
+ *
+ * @param  {string} str The warning message to log.
+ * @return {string} The string logged.
  */
 Policy.Certificate.prototype.warn =
-function warn(str) { this.setStatus_('warn', str) };
+function warn(str) { return this.setStatus_('warn', str) };
 
 /**
  * Log an error status message about this certificate definition.
+ *
+ * @param  {string} str The error message to log.
+ * @return {string} The string logged.
  */
 Policy.Certificate.prototype.error =
-function error(str) { this.setStatus_('error', str) };
+function error(str) { return this.setStatus_('error', str) };
 
 Policy.Certificate.prototype.setStatus_ =
 function setStatus_(type, str) {
-  this.status = type + ': ' + str;
   entd.syslog[type]('Certificate ' + this.id + ': ' + str);
+  this.status = type + ': ' + str;
+  return this.status;
 };
+
+Policy.Certificate.prototype.findSlotByLabel =
+function findSlotByLabel(label) {
+  for (var slot in entd.pkcs11.slots) {
+    if (slot.label == label) {
+      return slot;
+    }
+  }
+}
 
 /**
  * Determine if this certificate definition has been successfully installed.
@@ -358,8 +335,8 @@ function setStatus_(type, str) {
  */
 Policy.Certificate.prototype.isInstalled =
 function isInstalled() {
-  var slot = entd.pkcs11.slots[this.pkcs11slot];
-  return (slot && 'cert' in slot && slot.cert.label == this.label)
+  var slot = this.findSlotByLabel(this.label);
+  return (slot && ('certificate' in slot))
 };
 
 /**
@@ -388,8 +365,10 @@ function initiateCSR() {
   var subject = this.replaceVars(this.csr.subject);
   this.info('CSR Subject: ' + subject);
 
-  // Ask the TPM to make our CSR.
-  var csr = new entd.tpm.CSR(subject);
+  // Generate a key pair and then create a CSR with the public half in it.
+  var slot1 = new entd.pkcs11.SlotObject(this.label);
+  slot1.generateKeyPair("ignored", this.dummy_passphrase);
+  var csr = new slot1.CSR(subject);
 
   // Copy the CSR as a string to the environment.
   this.setVariable('csr', csr.toString());
@@ -399,8 +378,14 @@ function initiateCSR() {
     r.params = [];
 
     for (var key in this.csr.post_params) {
-      var value = this.replaceVars(this.csr.post_params[key]);
-      r.params.push(key + '=' + encodeURI(value));
+      var value = this.csr.post_params[key];
+      var isRaw = util.isRawString(value);
+      value = this.replaceVars(value);
+      if (isRaw) {
+        r.params.push(encodeURI(key) + '=' + value);
+      } else {
+        r.params.push(encodeURI(key) + '=' + encodeURI(value));
+      }
     }
   }
 
@@ -487,12 +472,14 @@ function onIssuanceComplete(request, response) {
   }
 
   // Make a new certificate object from the response content.
-  var cert = new entd.tpm.Certificate(response.content);
+  var cert = new entd.pkcs11.Certificate(response.content);
 
   // ...and store it in the TPM.
-  entd.pkcs11.store(this.pkcs11slot, this.label, 'cert', cert);
+  var slot = new entd.pkcs11.SlotObject(this.label);
+  slot.addCertificate(cert);
+  //writeToFile(cert.toString(), "what filename to use?");
 
-  this.info('Certificate stored in slot: ' + this.pkcs11slot);
+  this.info('Certificate stored in slot: ' + slot);
 
   if (typeof request.certificate.onInstall == "function") {
     try {
@@ -610,6 +597,10 @@ function cb_listCerts(arg) {
  */
 Policy.Callbacks.prototype['cb:initiateCSR'] =
 function cb_initiateCSR(arg) {
+
+  // If they forgot to reference a certificate, or we can't locate the
+  // one they referenced, we return a hard CallbackError.  If the UI notices
+  // a CallbackError, its only recourse is to show a generic alert message.
   if (!arg)
     return Policy.CallbackError('Missing arguments');
 
@@ -617,21 +608,27 @@ function cb_initiateCSR(arg) {
   if (!cert)
     return Policy.CallbackError('Unknown certificate: ' + arg.certificateId);
 
+  // If we can find the cert, then we return a CallbackSuccess and set the
+  // status of the cert, even on failure.  If the UI sees a CallbackSuccess,
+  // it can associate the attached message with the certificate UI.
+  // It will ultimately know the correct success or failure state of the CSR
+  // from the "isInstalled" property returned by the listCertificates callback.
   if (cert.userVariables) {
     if (!arg.variables)
-      return Policy.CallbackError('Missing parameter: variables');
+      return Policy.CallbackSuccess(cert.error('Missing parameter: variables'));
 
     for (name in cert.userVariables) {
-      if (!(name in arg.variables))
-        return Policy.CallbackError('Missing certificate variable: ' + name);
+      if (!(name in arg.variables)) {
+        return Policy.CallbackSuccess(
+            cert.error('Missing certificate variable: ' + name));
+      }
 
       cert.setVariable(name, String(arg.variables[name]));
     }
   }
 
   cert.initiateCSR();
-  return Policy.CallbackSuccess('Sending CSR for: ' + cert.id + ': ' +
-                                cert.label)
+  return Policy.CallbackSuccess(cert.info('Initiating CSR for: ' + cert.label));
 };
 
 /**
@@ -674,6 +671,14 @@ var util = new Object();
  */
 util.replaceVars =
 function replaceVars(str, vars) {
+  function uriall_replace (ch) {
+    // Replace EVERY character with a percent sign, followed by the character's
+    // value in hex.  It's like an extreme uri encoding, and some CSR servers
+    // seem to require it.
+    rv = ch.charCodeAt(0).toString(16);
+    return "%" + (rv.length > 1 ? rv : ("0" + rv));
+  }
+
   function cb(m, flag, name) {
     if (typeof vars == 'function')
       value = vars(name);
@@ -688,6 +693,9 @@ function replaceVars(str, vars) {
 
     switch (flag) {
       case 'uri': return encodeURI(value);
+
+      case 'uriall':
+        return value.replace(/.|\n/g, uriall_replace);
 
       default:
         throw new Error('replaceVars: Unknown flag: ' + flag +
@@ -885,3 +893,23 @@ function ensureProperties(obj, names, opt_objname) {
       throw new Error(msg + names[i]);
   }
 };
+
+/**
+ * Return a string which indicates that it should not be escaped.
+ */
+util.RawString =
+function RawString(str) {
+  if (!(str instanceof String))
+    str = new String(str);
+
+  str.isRaw_ = true;
+  return str;
+}
+
+/**
+ * Detect a raw string.
+ */
+util.isRawString =
+function isRawString(str) {
+  return str instanceof String && str.isRaw_ == true;
+}

@@ -94,6 +94,22 @@ function loadCertificates() {
   client.invokePolicyCallback('listCertificates', null, oncomplete);
 };
 
+client.initiateCSR =
+function initiateCSR(cert, variables)
+{
+  client.invokePolicyCallback(
+      'initiateCSR', { certificateId: cert.id, variables: variables },
+      function oncomplete(retval) {
+        if (retval instanceof client.CallbackError) {
+          alert('Error installing certificate: ' + retval.data);
+          return;
+        }
+
+        cert.status = retval.data;
+        client.refreshCertificates(client.certificates);
+      });
+}
+
 /**
  * Invoked when the 'Install' (sometimes shown as 'Reinstall') button is
  * clicked.
@@ -110,7 +126,7 @@ function onCertClick_(id) {
   if (cert.userVariables)
     client.showModal(cert);
   else
-    client.invokePolicyCallback('initiateCSR', { certificateId: id });
+    client.initiateCSR(cert);
 };
 
 /**
@@ -197,12 +213,7 @@ function onModalCancel() {
   if (!valid)
     return;
 
-  client.invokePolicyCallback(
-      'initiateCSR', { certificateId: cert.id, variables: variables },
-      function oncomplete(retval) {
-        if (retval instanceof client.CallbackError)
-          alert('Error installing certificate: ' + retval);
-      });
+  client.initiateCSR(cert, variables);
   client.hideModal();
 };
 
