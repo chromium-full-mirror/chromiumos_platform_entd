@@ -124,7 +124,7 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
 
     // build the openssl command
     std::string cmd =
-        std::string("openssl req -new -batch -newkey rsa:2048 -nodes")
+        std::string("openssl req -new -batch -newkey rsa:2048")
         + " -keyout " + private_key_filename
         + " -subj \"" + subject + "\""
         + " -pubkey -out " + csr_filename;
