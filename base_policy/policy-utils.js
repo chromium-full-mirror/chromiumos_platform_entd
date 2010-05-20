@@ -320,11 +320,7 @@ function setStatus_(type, str) {
 
 Policy.Certificate.prototype.findSlotByLabel =
 function findSlotByLabel(label) {
-  for (var slot in entd.pkcs11.slots) {
-    if (slot.label == label) {
-      return slot;
-    }
-  }
+  return entd.pkcs11.slots[label] || null;
 }
 
 /**
@@ -336,7 +332,7 @@ function findSlotByLabel(label) {
 Policy.Certificate.prototype.isInstalled =
 function isInstalled() {
   var slot = this.findSlotByLabel(this.label);
-  return (slot && ('certificate' in slot))
+  return (slot && ('certificate' in slot));
 };
 
 /**
@@ -475,11 +471,18 @@ function onIssuanceComplete(request, response) {
   var cert = new entd.pkcs11.Certificate(response.content);
 
   // ...and store it in the TPM.
-  var slot = new entd.pkcs11.SlotObject(this.label);
-  slot.addCertificate(cert);
-  //writeToFile(cert.toString(), "what filename to use?");
+  var slot = this.findSlotByLabel(this.label);
+  if (!slot) {
+    this.error("Can't add certificate: missing slot object");
+    return;
+  }
 
-  this.info('Certificate stored in slot: ' + slot);
+  slot.addCertificate(cert);
+
+  this.path = "/home/chronos/user/Downloads/" + this.label + ".pem";
+  writeToFile(cert.toString(), this.path);
+
+  this.info('Certificate installed to: ' + this.path);
 
   if (typeof request.certificate.onInstall == "function") {
     try {
