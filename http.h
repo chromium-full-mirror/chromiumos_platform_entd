@@ -51,6 +51,7 @@ class Http : public JSObjectWrapper<Http> {
   static const char* GetClassName() { return "http"; }
 
   static bool allow_self_signed_certs;
+  static std::string root_ca_file;
 
   Entd* GetEntd() { return entd_; };
 

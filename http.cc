@@ -336,6 +336,12 @@ bool HttpCurlEasy::CurlSetupRequest(HttpRequest* request, CURL* handle) {
                             reinterpret_cast<void*>(verify_peer));
   }
 
+  if (code == CURLE_OK && !Http::root_ca_file.empty()) {
+    code = curl_easy_setopt(
+        handle, CURLOPT_CAINFO,
+        reinterpret_cast<const void*>(Http::root_ca_file.c_str()));
+  }
+
   if (code == CURLE_OK) {
     std::string auth = request->GetString("auth");
     if (auth.length() > 0) {
@@ -543,6 +549,7 @@ Http::~Http() {
 }
 
 bool Http::allow_self_signed_certs = false;
+std::string Http::root_ca_file = "";
 
 bool Http::Initialize() {
   if (messenger_ == NULL) {

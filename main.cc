@@ -27,9 +27,12 @@ static const char *kManifest = "manifest";
 static const char *kPolicy =   "policy";
 static const char *kUtility =  "utility";
 
-// Certificate files
+// Certificate files for mock pkcs11 certificate handler
 static const char *kCsrFile = "csr-file";
 static const char *kCertFile = "cert-file";
+
+// Root CA for HTTPS requests.
+static const char *kRootCAFile = "root-ca-file";
 
 // If specified, then self-signed server certs are ok for HTTPS
 static const char *kAllowSelfSigned = "allow-self-signed";
@@ -62,6 +65,7 @@ int main(int argc, char** argv) {
   std::string username = cl->GetSwitchValueASCII(switches::kUsername);
   std::string csr_file = cl->GetSwitchValueASCII(switches::kCsrFile);
   std::string cert_file = cl->GetSwitchValueASCII(switches::kCertFile);
+  std::string root_ca_file = cl->GetSwitchValueASCII(switches::kRootCAFile);
 
   // Get file paths from a valid policy extension if it exists
   std::string extension_path;
@@ -72,12 +76,17 @@ int main(int argc, char** argv) {
   }
 
   if (valid_policy) {
-    FilePath policy_path = FilePath(extension_path).Append("policy.js");
-    if (file_util::PathExists(policy_path))
-      policy = policy_path.value();
-    FilePath manifest_path = FilePath(extension_path).Append("manifest.json");
-    if (file_util::PathExists(manifest_path))
-      manifest = manifest_path.value();
+    FilePath path = FilePath(extension_path).Append("policy.js");
+    if (file_util::PathExists(path))
+      policy = path.value();
+
+    path = FilePath(extension_path).Append("manifest.json");
+    if (file_util::PathExists(path))
+      manifest = path.value();
+
+    path = FilePath(extension_path).Append("root_ca.pem");
+    if (file_util::PathExists(path))
+      root_ca_file = path.value();
   }
 
   // Command line switches for policy files override extension filepaths
@@ -90,6 +99,9 @@ int main(int argc, char** argv) {
 
   if (cl->HasSwitch(switches::kAllowSelfSigned))
     entd::Http::allow_self_signed_certs = true;
+
+  if (!root_ca_file.empty())
+    entd::Http::root_ca_file = root_ca_file;
 
   if (cl->HasSwitch(switches::kAllowDirtyExit))
     entd::Entd::allow_dirty_exit = true;
