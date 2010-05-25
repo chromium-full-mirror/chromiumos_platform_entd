@@ -154,7 +154,6 @@ void ThrowV8Exception(const std::string& err) {
 }
 
 void ReportV8Exception(v8::TryCatch* try_catch) {
-  std::cerr << "V8 Exception:\n";
   v8::HandleScope handle_scope;
   v8::String::Utf8Value exception(try_catch->Exception());
   const char* exception_string = utils::ToCString(exception);
@@ -163,33 +162,20 @@ void ReportV8Exception(v8::TryCatch* try_catch) {
   if (message.IsEmpty()) {
     // V8 didn't provide any extra information about this error; just
     // print the exception.
-    std::cerr << exception_string << '\n';
+    LOG(ERROR) << "V8 Exception: " << exception_string << '\n';
 
   } else {
     // Print (filename):(line number): (message).
     v8::String::Utf8Value filename(message->GetScriptResourceName());
     const char* filename_string = utils::ToCString(filename);
     int linenum = message->GetLineNumber();
-    std::cerr << filename_string << ':' << linenum << ": " <<
-        exception_string << '\n';
+    LOG(ERROR) << "V8 Exception: " << filename_string << ':' << linenum <<
+        ": " << exception_string;
 
     // Print line of source code.
     v8::String::Utf8Value sourceline(message->GetSourceLine());
     const char* sourceline_string = utils::ToCString(sourceline);
-    std::cerr << sourceline_string << '\n';
-
-    // Print wavy underline (GetUnderline is deprecated).
-    int start = message->GetStartColumn();
-    for (int i = 0; i < start; i++) {
-      std::cerr << ' ';
-    }
-
-    int end = message->GetEndColumn();
-    for (int i = start; i < end; i++) {
-      std::cerr << '^';
-    }
-
-    std::cerr << '\n';
+    LOG(ERROR) << sourceline_string;
   }
 }
 

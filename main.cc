@@ -3,7 +3,24 @@
 // found in the LICENSE file.
 
 #include <stdio.h>
+#include <syslog.h>
 
+// syslog.h and base/logging.h both try to #define LOG_INFO and LOG_WARNING.
+// We need to #undef at least these two before including base/logging.h.  The
+// others are included to be consistent.
+namespace {
+const int kSyslogInfo     = LOG_INFO;
+const int kSyslogWarning  = LOG_WARNING;
+const int kSyslogError    = LOG_ERR;
+const int kSyslogCritical = LOG_CRIT;
+
+#undef LOG_INFO
+#undef LOG_WARNING
+#undef LOG_ERR
+#undef LOG_INFO
+}  // namespace
+
+#include <iostream>
 #include <string>
 
 #include <base/command_line.h>
@@ -42,7 +59,45 @@ static const char *kAllowSelfSigned = "allow-self-signed";
 // entd.h for a little more info.
 static const char *kAllowDirtyExit = "allow-dirty-exit";
 
+static const char *kEnableSyslog = "enable-syslog";
+static const char *kDisableSyslog = "disable-syslog";
+
 }  // namespace switches
+
+bool handle_message(int severity, const std::string &message) {
+  switch (severity) {
+    case logging::LOG_INFO:
+      severity = kSyslogInfo;
+      break;
+
+    case logging::LOG_WARNING:
+      severity = kSyslogWarning;
+      break;
+
+    case logging::LOG_ERROR:
+    case logging::LOG_ERROR_REPORT:
+      severity = kSyslogError;
+      break;
+
+    case logging::LOG_FATAL:
+      severity = kSyslogCritical;
+      break;
+  }
+
+  // The first "] " should be the end of the header added by the logging
+  // code.  The meat of the message is two characters after that.
+  size_t pos = message.find("] ");
+  if (pos != std::string::npos && message.length() > pos + 2) {
+    pos += 2;
+  } else {
+    pos = 0;
+  }
+
+  const char* str = message.c_str() + pos;
+
+  syslog(severity, "%s", str);
+  return false;
+}
 
 // Return values:
 //   0: Entd completed successfully and should not be restarted.
@@ -54,12 +109,20 @@ static const char *kAllowDirtyExit = "allow-dirty-exit";
 // So, exit with a zero or one means leave it down, otherwise restart.
 //
 int main(int argc, char** argv) {
-  LOG(INFO) << "Starting entd";
-
   std::string manifest, policy, utility;
 
   CommandLine::Init(argc, argv);
   CommandLine* cl = CommandLine::ForCurrentProcess();
+
+  if (cl->HasSwitch(switches::kEnableSyslog) ||
+      (!isatty(STDOUT_FILENO) && !cl->HasSwitch(switches::kDisableSyslog))) {
+    // If syslog was explicitly enabled, or stdout is not a tty and syslog
+    // was not explicitly disabled, then send all LOG(...) messages to syslog.
+    logging::SetLogMessageHandler(handle_message);
+  }
+
+  LOG(INFO) << "Starting entd";
+
   std::string base_extension_path =
       cl->GetSwitchValueASCII(switches::kExtensionPath);
   std::string username = cl->GetSwitchValueASCII(switches::kUsername);
