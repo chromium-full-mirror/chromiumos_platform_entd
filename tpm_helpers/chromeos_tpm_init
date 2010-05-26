@@ -1,0 +1,99 @@
+#!/bin/sh
+# Copyright (c) 2010 The Chromium OS Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+#
+# Stop-gap tpm initialization code until it is integrate to the
+# setup process.
+#
+# Note: this will run and fail if the TPM is configured.
+#
+# Must be run in a terminal-less environment.
+
+# Command wrapper since there are occasionally transient bus
+# errors with TPM calls -- especially long-lived calls like
+# TPM_TakeOwnership.
+try () {
+  local cmd="$1"
+  shift
+  local args="$@"
+
+  local max_attempts=3
+  local attempt=0
+  local ret=1 
+  while [ $attempt -lt $max_attempts ]; do
+    echo -n "[*] $(date +%s): running $cmd . . ."
+    $cmd $args
+    ret=$?
+    if [ $ret -ne 0 ]; then
+      echo "fail"
+    else
+      echo "ok"
+      return 0
+    fi
+    attempt=$((attempt + 1))
+  done
+  return $ret
+}
+
+# Simple bail.  We don't use set -e because not all commands are terminal.
+err () {
+  echo -n "Something is wrong with the TPM. " 1>&2
+  echo "Try clearing it from the BIOS." 1>&2
+  exit 1
+}
+
+# 8 is the magic tpm password length.
+OWNER_PW=$(openssl rand -base64 8 | head -c 8)
+
+# temporary password so that we can reset it to nothing afterwards
+SRK_PW=1234567890
+
+# For debugging.
+# echo "owner: $OWNER_PW"
+# echo "srk: $SRK_PW"
+
+take_ownership () {
+  (echo ${OWNER_PW}; echo ${OWNER_PW}; echo ${SRK_PW}; echo ${SRK_PW}) | 
+    tpm_takeownership "$@"
+}
+
+change_srk_pw () {
+  (echo ${OWNER_PW}; echo; echo) | tpm_changeownerauth -s "$@"
+}
+
+unrestrict_srk () {
+  echo ${OWNER_PW} | tpm_restrictsrk -a "$@"
+}
+
+check_ek () {
+  # We don't want to log this.
+  tpm_getpubek "$@" &> /dev/null
+}
+
+# Log to /tmp (tmpfs) since this may leak TPM identifiable information.
+LOG_DIR=$(mktemp -d /tmp/chromeos_tpm_init.XXXXXX)
+exec 1>${LOG_DIR}/stdout
+exec 2>${LOG_DIR}/stderr
+
+# Drop a line in the system logs just so it's easy to check out
+logger "TPM initialization log directory: ${LOG_DIR}"
+
+echo "[-] Creating the endorsement key if needed."
+try tpm_createek
+
+echo "[-] Verifying the ek is available."
+try check_ek || err
+
+echo "[-] Setting up an owner."
+try take_ownership || err
+
+echo "[-] Ensuring the SRK has an empty password."
+try change_srk_pw || err
+
+echo "[-] Unrestricting the SRK for PKCS#11 use."
+try unrestrict_srk || err
+
+echo "[-] TPM has been configured for general use."
+exit 0
+
