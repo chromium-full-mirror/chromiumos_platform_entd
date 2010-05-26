@@ -44,6 +44,9 @@ static const char *kManifest = "manifest";
 static const char *kPolicy =   "policy";
 static const char *kUtility =  "utility";
 
+// Specify how to setup the pkcs11 interface
+static const char *kPkcs11 = "pkcs11";
+static const char *kOpenSSLConf = "openssl-conf";
 // Certificate files for mock pkcs11 certificate handler
 static const char *kCsrFile = "csr-file";
 static const char *kCertFile = "cert-file";
@@ -129,6 +132,8 @@ int main(int argc, char** argv) {
   std::string csr_file = cl->GetSwitchValueASCII(switches::kCsrFile);
   std::string cert_file = cl->GetSwitchValueASCII(switches::kCertFile);
   std::string root_ca_file = cl->GetSwitchValueASCII(switches::kRootCAFile);
+  std::string pkcs11_mode = cl->GetSwitchValueASCII(switches::kPkcs11);
+  std::string openssl_conf = cl->GetSwitchValueASCII(switches::kOpenSSLConf);
 
   // Get file paths from a valid policy extension if it exists
   std::string extension_path;
@@ -186,6 +191,12 @@ int main(int argc, char** argv) {
 
   if (!csr_file.empty() || !cert_file.empty())
     d.SetCertificateFiles(csr_file, cert_file);
+
+  if (!pkcs11_mode.empty())
+    d.SetPkcs11Mode(pkcs11_mode);
+
+  if (!openssl_conf.empty())
+    d.SetPkcs11OpenSSLConfig(openssl_conf);
 
   uint32_t rv = d.Run();
   LOG(INFO) << "Exiting entd with code: " << rv;

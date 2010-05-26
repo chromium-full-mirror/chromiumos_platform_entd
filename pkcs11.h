@@ -33,14 +33,16 @@ class Pkcs11SlotHandler {
  public:
   virtual ~Pkcs11SlotHandler() {}
   virtual bool Initialize() = 0;
+  virtual bool SetUserPin(const std::string& pin) = 0;
+  virtual bool SetKeyIdentifier(const std::string& label,
+                                const std::string& keyid) = 0;
   virtual bool BuildSlotObject(const std::string& label) = 0;
   virtual bool GenerateKeyPair(const std::string& label,
-                               const std::string& keyid,
                                const std::string& passphrase) = 0;
   virtual bool AddCertificate(const std::string& label,
-                              const std::string& cert) = 0;
-  virtual bool RemoveCertificate(const std::string& label) = 0;
-  virtual std::string GetCertificate(const std::string& label) const = 0;
+                              const std::vector<char>& cert,
+                              const std::string& subject) = 0;
+  virtual bool RemoveObjects(const std::string& label) = 0;
   virtual std::string GetKeyIdentifier(const std::string& label) const = 0;
   virtual std::string GetPassphrase(const std::string& label) const = 0;
   virtual std::string GetPublicKey(const std::string& label) const = 0;
@@ -53,10 +55,13 @@ class Pkcs11CertificateHandler {
   Pkcs11CertificateHandler() : slot_handler_(NULL) {}
   virtual ~Pkcs11CertificateHandler() {}
   virtual bool Initialize() = 0;
-  virtual std::string BuildCSR(const std::string& label,
-                               const std::string& subject) = 0;
-  virtual std::string BuildCertificate(const std::string& content) = 0;
-  // InitSlotHandler() is called from Pkcs11::Initialize with its
+  virtual bool BuildCSR(const std::string& label,
+                        const std::string& subject,
+                        std::string* csr) = 0;
+  virtual bool BuildCertificate(const std::string& content,
+                                std::vector<char>* certificate,
+                                std::string* subject) = 0;
+  // SetSlotHandler() is called from Pkcs11::Initialize with its
   // Pkcs11SlotHandler implementation for the benefit of certificate handlers
   // that need access to the slot handler (e.g. for encryption).
   void SetSlotHandler(Pkcs11SlotHandler* slot_handler) {
@@ -65,26 +70,6 @@ class Pkcs11CertificateHandler {
   Pkcs11SlotHandler* slot_handler() { return slot_handler_; }
  private:
   Pkcs11SlotHandler* slot_handler_;
-};
-
-// Test Certificate handler that returns the contents of a file.
-//
-// If the csr or cert file exists, the contents of the file is returned
-// in BuildCSR or BuildCertificate; subject or content arguments are ignored.
-// If the filename is empty or the file does not exist, a string
-// containing the subject or content is returned instead.
-class Pkcs11CertificateHandlerLocalFile : public Pkcs11CertificateHandler {
- public:
-  Pkcs11CertificateHandlerLocalFile(const std::string& csr,
-                                 const std::string& cert);
-  virtual ~Pkcs11CertificateHandlerLocalFile() {}
-  virtual bool Initialize() { return true; }
-  virtual std::string BuildCSR(const std::string& label,
-                               const std::string& subject);
-  virtual std::string BuildCertificate(const std::string& content);
- private:
-  std::string csr_filename_;
-  std::string certificate_filename_;
 };
 
 // Pkcs11 JavaScript Interface class.
@@ -107,6 +92,13 @@ class Pkcs11 : public JSObjectWrapper<Pkcs11> {
          Pkcs11SlotHandler* slot_handler);
   virtual ~Pkcs11();
   virtual bool Initialize();
+  // Call this *instead of* Initialize() to use opencryptoki with openssl
+  bool InitializeOpenCryptoki(const std::string& test_cert,
+                              const std::string& engine);
+  // Call this *instead of* Initialize() to use openssl without opencryptoki
+  bool InitializeOpenSSL(const std::string& test_cert);
+  // Call this *instead of* Initialize() to use local files
+  bool InitializeLocalFiles(const std::string& csr, const std::string& cert);
 
   // JSObjectWrapper functions
   static const char* GetClassName() { return "pkcs11"; }

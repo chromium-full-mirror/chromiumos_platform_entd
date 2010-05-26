@@ -21,6 +21,7 @@ def build():
           'v8',
           'event',
           'curl',
+          'opencryptoki',
           'chromeos',
           'crosapi'],
   )

@@ -7,7 +7,7 @@ function onLoad(manifest) {
   var slot1 = new entd.pkcs11.SlotObject("slot1");
   // println("slot1: " + slot1.toString());
   var passphrase = "000000";
-  slot1.generateKeyPair("key1", passphrase);
+  slot1.generateKeyPair(1234, passphrase);
   var subj1 = "/C=US/ST=California/L=Mountain View/O=Google Inc"
 "/OU=ChromeOS/CN=user.onex.corp.google.com"
 "/emailAddress=user@google.com";
@@ -15,16 +15,14 @@ function onLoad(manifest) {
   //println("CSR1:\n" + csr1.toString());
   //println("Public Key:\n" + slot1.publicKey.toString());
 
-  var cert1 = new entd.pkcs11.Certificate("content1");
+  var cert1 = new entd.pkcs11.Certificate("");  // Use test certificate
   // println("Adding cert1: " + cert1);
   slot1.addCertificate(cert1);
   // println("slot1: " + slot1.toString());
 
-  println("Slots:");
-  println(JSON.stringify(entd.pkcs11.slots));
-
-  var filename = "cert.pem";
+  var filename = "certificate.pem";
   println("Writing certificate to: " + filename);
+  println(" Subject:" + cert1.subject);
 
   writeToFile(cert1.toString(), filename);
 }

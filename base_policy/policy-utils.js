@@ -102,6 +102,12 @@ function Policy(manifest) {
   this.callbacks = new Policy.Callbacks(this);
 }
 
+// Store keys and certificates in the TPM
+Policy.USE_TPM = true;
+
+// Well known user PIN for the TPM
+Policy.PKCS11_USER_PIN = '000000';
+
 /**
  * Set a variable for this policy.
  *
@@ -213,7 +219,10 @@ function PolicyCertificate(policy, id, params) {
                         'params');
 
   this.label = params.label;
-  this.dummy_passphrase = '0000';
+  // Note: key_identifier is ignored if not using the TPM
+  this.key_identifier = params.key_identifier || '3';
+  // Note: key_passphrase is ignored if using the TPM
+  this.key_passphrase = params.key_passphrase || '0000';
   this.onInstall = params.onInstall;
 
   util.ensureProperties(params.csr, ['subject', 'host', 'path'], 'params.csr');
@@ -361,9 +370,14 @@ function initiateCSR() {
   var subject = this.replaceVars(this.csr.subject);
   this.info('CSR Subject: ' + subject);
 
-  // Generate a key pair and then create a CSR with the public half in it.
+  // Set the user pin for the PKCS#11 device
+  entd.pkcs11.setUserPin(Policy.PKCS11_USER_PIN);
+
+  // Generate a key pair
   var slot1 = new entd.pkcs11.SlotObject(this.label);
-  slot1.generateKeyPair("ignored", this.dummy_passphrase);
+  slot1.generateKeyPair(this.key_identifier, this.key_passphrase);
+
+  // create a CSR using the generated key pair
   var csr = new slot1.CSR(subject);
 
   // Copy the CSR as a string to the environment.
@@ -479,9 +493,15 @@ function onIssuanceComplete(request, response) {
 
   slot.addCertificate(cert);
 
-  this.path = "/home/chronos/user/Downloads/" + this.label + ".pem";
-  writeToFile(cert.toString(), this.path);
-
+  if (Policy.USE_TPM) {
+    this.path = "SETTINGS:" 
+      + "key_id=" + this.key_identifier 
+      + ",cert_id=" + this.key_identifier
+      + ",pin=" + Policy.PKCS11_USER_PIN;
+  } else {
+    this.path = "/home/chronos/user/Downloads/" + this.label + ".pem";
+    writeToFile(cert.toString(), this.path);
+  }
   this.info('Certificate installed to: ' + this.path);
 
   if (typeof request.certificate.onInstall == "function") {

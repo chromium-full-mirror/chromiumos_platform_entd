@@ -74,6 +74,19 @@ class Entd : public JSObjectWrapper<Entd> {
     certificate_filename_ = cert_filename;
   }
 
+  // Determines how the pkcs11 module will be setup.
+  // See ConstructEntd() for details.
+  void SetPkcs11Mode(const std::string& mode) {
+    LOG(INFO) << "PKCS11 Mode: '" << mode << "'";
+    pkcs11_mode_ = mode;
+  }
+
+  // Used to set the opsnssl configuration file.
+  void SetPkcs11OpenSSLConfig(const std::string& config_file) {
+    LOG(INFO) << "PKCS11 OpenSSL config: '" << config_file << "'";
+    pkcs11_config_filename_ = config_file;
+  }
+
   bool SetHostname(const std::string& hostname) {
     if (!CheckHostname(hostname)) {
       LOG(ERROR) << "Invalid hostname: " << hostname;
@@ -185,11 +198,14 @@ class Entd : public JSObjectWrapper<Entd> {
   bool CallJson(std::string method_name, v8::Handle<v8::Value> arg,
                 v8::Handle<v8::Value>* result);
 
+  std::string pkcs11_mode_;
+
   std::string utility_filename_;
   std::string manifest_filename_;
   std::string policy_filename_;
   std::string csr_filename_;
   std::string certificate_filename_;
+  std::string pkcs11_config_filename_;
 
   // Starts out as just the hostname portion of the username, but may be
   // set to a subdomain of that by the manifest file.

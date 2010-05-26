@@ -9,7 +9,14 @@
 
 USERNAME="user@google.com"
 ALLOW_DIRTY_EXIT=1
-ENTD="../../scripts/run_32bit.sh out/i686-pc-linux-gnu/entd --"
+grep "Chromium OS" /etc/lsb-release
+if [ $? == 0 ]; then
+  CHROMEOS=1
+  ENTD="/usr/sbin/entd"
+else
+  CHROMEOS=0
+  ENTD="../../scripts/run_32bit.sh out/i686-pc-linux-gnu/entd --"
+fi
 
 # If non-zero, print test output on failure
 VERBOSE=1
@@ -104,22 +111,38 @@ greptest "http-redirect.js" "HTTP COMPLETE"
 greptest "--policy=test_data/pkcs11.js --csr-file=test_data/csr_test.pem" \
 '{"slot1":{"label":"slot1","keyIdentifier":"key1",'\
 '"publicKey":"<This is a public key>",'\
-'"certificate":{"content":"<Certificate content=content1 />"}},'\
+'"certificate":{"content":"content1","subject":"Content"}},'\
 '"slot2":{"label":"slot2","keyIdentifier":"key2",'\
 '"publicKey":"<This is a public key>",'\
-'"certificate":{"content":"<Certificate content=content2 />"}}}' \
+'"certificate":{"content":"content2","subject":"Content"}}}' \
 "pkcs11.js"
-greptest "pkcs11-openssl.js" \
-'{"slot1":{"label":"slot1","keyIdentifier":"key1",'\
-'"publicKey":"<This is a public key>",'\
-'"certificate":{"content":"content1'
 greptest 'pkcs11-cert.js '\
 '--csr-file=test_data/csr_test.pem --cert-file=test_data/cert_test.pem' \
 '{"slot1":{"label":"slot1",'\
-'"certificate":{"content":"-----BEGIN CERTIFICATE-----' \
+'"certificate":{"content":"content1",'\
+'"subject":"File: test_data/cert_test.pem"}}}' \
 "pkcs11-cert.js"
+greptest 'pkcs11-openssl.js '\
+'--pkcs11=openssl --cert-file=test_data/cert_test.pem' \
+'Subject:/C=US/ST=California/L=Mountain View/O=Google Inc/OU=ChromeOS' \
+"pkcs11-openssl.js"
 greptest "pkcs11-remove.js" "Slot1: undefined"
 
+# Pkcs11 opencryptoki tests (chromeos only)
+if [ 1 == "$CHROMEOS" ]; then
+  greptest 'pkcs11-opencryptoki.js '\
+'--pkcs11=opencryptoki --openssl-conf="base_policy/openssl.conf" '\
+'--cert-file=test_data/cert_test.pem' \
+'{"slot1":{"label":"slot1","keyIdentifier":"1033","publicKey":"",'\
+'"certificate":{"content":"",'\
+'"subject":"/C=US/ST=California/L=Mountain View/O=Google Inc/OU=ChromeOS' \
+"pkcs11-opencryptoki.js"
+  greptest 'pkcs11-opencryptoki-delete.js '\
+'--pkcs11=opencryptoki --openssl-conf="base_policy/openssl.conf"'\
+'--cert-file=test_data/cert_test.pem' \
+'Slots: {}' \
+"pkcs11-opencryptoki-delete.js"
+fi
 # Slightly longer running tests.
 greptest "settimeout.js" "string timeout function timeout"
 greptest "cleartimeout.js" "starting timeouts function timeout"

@@ -362,17 +362,19 @@ v8::Handle<v8::Object> Entd::ConstructEntd() {
   entd->Set(v8::String::NewSymbol("callbackServer"),
             callback_server_->obj(), v8::ReadOnly);
 
-  // Setup the pkcs11 handlers
-  Pkcs11CertificateHandler* cert_handler(NULL);  // NULL indicates default
-  if (!csr_filename_.empty() || !certificate_filename_.empty()) {
-    cert_handler = new Pkcs11CertificateHandlerLocalFile(
-        csr_filename_, certificate_filename_);
-  }
-  Pkcs11SlotHandler* slot_handler(NULL);  // NULL indicates default
-
   // Build the pkcs11 object
-  pkcs11_.reset(new Pkcs11(cert_handler, slot_handler));
-  pkcs11_->Initialize();
+  pkcs11_.reset(new Pkcs11(NULL, NULL));
+  if (pkcs11_mode_ == "opencryptoki") {
+    pkcs11_->InitializeOpenCryptoki(certificate_filename_,
+                                    pkcs11_config_filename_);
+  } else if (pkcs11_mode_ == "openssl") {
+    pkcs11_->InitializeOpenSSL(certificate_filename_);
+  } else if (!pkcs11_mode_.empty()) {
+    LOG(ERROR) << "Unrecognized pkcs11 mode: " << pkcs11_mode_;
+    exit(1);
+  } else {
+    pkcs11_->InitializeLocalFiles(csr_filename_, certificate_filename_);
+  }
   entd->Set(v8::String::New("pkcs11"),
             pkcs11_->obj(), v8::ReadOnly);
 
