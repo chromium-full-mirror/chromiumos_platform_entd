@@ -54,13 +54,21 @@ function loadManifest() {
       // web server.
       client.manifest = JSON.parse(this.responseText);
       console.log('manifest: ' + this.responseText);
-      title = document.getElementById('title');
-      while (title.firstChild)
-        title.removeChild(title.firstChild);
-      title.appendChild(document.createTextNode(client.manifest.description));
-    } else {
-      throw new Error('Error loading manifest: ' + this.status);
     }
+
+    var titleNode = document.getElementById('title');
+    var titleText
+
+    if (client.manifest && client.manifest.description) {
+      titleText = client.manifest.description;
+    } else {
+      titleText = 'Error loading manifest: ' + this.status;
+    }
+
+    while (titleNode.firstChild)
+      titleNode.removeChild(titleNode.firstChild);
+
+    titleNode.appendChild(document.createTextNode(titleText));
   };
 
   xhr.open('GET', client.getURL('manifest.json'));

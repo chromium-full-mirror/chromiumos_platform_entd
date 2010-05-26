@@ -115,8 +115,8 @@
             <ul id="user-vars"></ul>
             <div style="height:2em">
               <div style="float:right">
-                <button onclick="client.onModalCancel_()">Cancel</button>
                 <input type="submit" value="Submit">
+                <button onclick="client.onModalCancel_()">Cancel</button>
               </div>
             </div>
           </form>
@@ -125,14 +125,15 @@
 
       <center>
         <h1>Enterprise policy options</h1>
-        <h2 id="title">client.js will replace this title</h2>
+        <h2 id="title"><!-- client.js will replace this title --></h2>
       </center>
 
       <div id="content">
         <h2>Certificate Status</h2>
         <ul id="cert-list">
           <!-- client.js will populate this with the known certs -->
-          <li><center>Loading certificate status.</center></li>
+          <li><center>Waiting for reply from the Enterprise
+              Daemon...</center></li>
         </ul>
       </div>
     </div>
