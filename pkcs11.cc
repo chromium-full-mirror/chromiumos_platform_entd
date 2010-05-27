@@ -17,6 +17,8 @@
 #include <chromeos/utility.h>
 #include <curl/curl.h>
 #include <opencryptoki/pkcs11.h>
+#include <openssl/rsa.h>
+#include <openssl/bn.h>
 
 #include "entd/utils.h"
 
@@ -104,7 +106,7 @@ class Pkcs11CertificateHandlerLocalFile : public Pkcs11CertificateHandler {
   }
 
   virtual bool BuildCertificate(const std::string& content,
-                                std::vector<char>* certificate,
+                                chromeos::Blob* certificate,
                                 std::string* subject) {
     std::string subjectstr;
 
@@ -115,8 +117,8 @@ class Pkcs11CertificateHandlerLocalFile : public Pkcs11CertificateHandler {
       bool file_read = file_util::GetFileSize(filepath, &filesize);
       if (file_read) {
         certificate->resize(filesize);
-        int res = file_util::ReadFile(
-            filepath, &(certificate->front()), filesize);
+        char* dest = reinterpret_cast<char*>(&(certificate->front()));
+        int res = file_util::ReadFile(filepath, dest, filesize);
         if (res == filesize) {
           *subject = std::string("File: ") + certificate_filename_;
         } else {
@@ -175,13 +177,17 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
     std::string passphrase = slot_handler()->GetPassphrase(label);
 
     // *TODO: replace with calls to libopenssl to avoid system() call.
+    if (!CheckString(subject) ||
+        !CheckString(passphrase)) {
+      return false;
+    }
     std::string cmd =
         std::string("openssl req -new -batch -newkey rsa:2048")
         + " -keyout " + private_key_fp.value()
-        + " -subj \"" + EscapeString(subject) + "\""
+        + " -subj \"" + subject + "\""
         + " -pubkey -out " + csr_fp.value();
     if (!passphrase.empty())
-      cmd += " -passout pass:" + EscapeString(passphrase);
+      cmd += " -passout pass:" + passphrase;
     CallSystem(cmd);
 
     // get the results from the temporary files
@@ -200,6 +206,14 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
     file_util::Delete(private_key_fp, false);
     file_util::Delete(csr_fp, false);
 
+    // Convert the pivate key to DER format and pass it to the slot handler.
+    if (use_DER_format_ && !private_key_.empty()) {
+      chromeos::Blob key_der;
+      if (!ConvertToDER(private_key_, passphrase, &key_der))
+        return false;
+      slot_handler()->AddPrivateKey(label, subject, key_der);
+    }
+
     *csr = csr_;
 
     return true;
@@ -208,7 +222,7 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
   // Include the private key (encoded with the SlotObject's passphrase)
   // with the certificate so that it can be decoded with the passphrase.
   virtual bool BuildCertificate(const std::string& content,
-                                std::vector<char>* certificate,
+                                chromeos::Blob* certificate,
                                 std::string* subject) {
     FilePath temp_dir;
     file_util::GetTempDir(&temp_dir);
@@ -259,8 +273,8 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
       int res = -1;
       if (file_util::GetFileSize(cert_der_fp, &certlen)) {
         certificate->resize(certlen);
-        res = file_util::ReadFile(
-            cert_der_fp, &(certificate->front()), certlen);
+        char* dest = reinterpret_cast<char*>(&(certificate->front()));
+        res = file_util::ReadFile(cert_der_fp, dest, certlen);
       }
       file_util::Delete(cert_der_fp, false);
       if (res != certlen) {
@@ -323,48 +337,56 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
       }
     }
 
-    if (use_DER_format_ && !private_key_.empty()) {
-      // Convert the pivate key to DER format and pass it to the slot handler.
-
-      FilePath key_pem_fp = temp_dir.Append("key.pem");
-      FilePath key_der_fp = temp_dir.Append("key.der");
-
-      // Write the private key to a temporary file
-      int res = file_util::WriteFile(
-          key_pem_fp, private_key_.c_str(), private_key_.length());
-      if (res < 0) {
-        LOG(ERROR) << "Unable to write temporary file: " << key_pem_fp.value();
-        return false;
-      }
-
-      // Use openssl to write the the DER version of the key
-      // *TODO: replace with calls to libopenssl to avoid system() call.
-      std::string cmd("openssl rsa");
-      cmd += " -inform PEM -in " + key_pem_fp.value();
-      cmd += " -outform DER -out " + key_der_fp.value();
-      CallSystem(cmd);
-
-      // read in the DER version of the key.
-      std::vector<char> key_der;
-      int64 keylen;
-      res = -1;
-      if (file_util::GetFileSize(key_der_fp, &keylen)) {
-        key_der.resize(keylen);
-        res = file_util::ReadFile(
-            key_der_fp, &(key_der.front()), keylen);
-      }
-      if (res != keylen) {
-        LOG(ERROR) << "Unable to read key DER file: " << key_der_fp.value();
-      }
-
-      file_util::Delete(key_pem_fp, false);
-      file_util::Delete(key_der_fp, false);
-    }
-
     return true;
   }
 
  protected:
+  bool ConvertToDER(const std::string& key,
+                    const std::string& passphrase,
+                    chromeos::Blob* key_der) {
+    FilePath temp_dir;
+    file_util::GetTempDir(&temp_dir);
+    FilePath key_pem_fp = temp_dir.Append("key.pem");
+    FilePath key_der_fp = temp_dir.Append("key.der");
+
+    // Write the key to a temporary file
+    int res = file_util::WriteFile(key_pem_fp, key.c_str(), key.length());
+    if (res < 0) {
+      LOG(ERROR) << "Unable to write temporary file: " << key_pem_fp.value();
+      return false;
+    }
+
+    // Use openssl to write the the DER version of the key
+    // *TODO: replace with calls to libopenssl to avoid system() call.
+    if (!CheckString(passphrase)) {
+      return false;
+    }
+    std::string cmd("openssl rsa");
+    cmd += " -inform PEM -in " + key_pem_fp.value();
+    cmd += " -outform DER -out " + key_der_fp.value();
+    if (!passphrase.empty())
+      cmd += " -passin pass:" + passphrase;
+    CallSystem(cmd);
+
+    // read in the DER version of the key.
+    int64 keylen;
+    res = -1;
+    if (file_util::GetFileSize(key_der_fp, &keylen)) {
+      key_der->resize(keylen);
+      char* dest = reinterpret_cast<char*>(&(key_der->front()));
+      res = file_util::ReadFile(key_der_fp, dest, keylen);
+    }
+
+    file_util::Delete(key_pem_fp, false);
+    file_util::Delete(key_der_fp, false);
+
+    if (res != keylen) {
+      LOG(ERROR) << "Unable to read key DER file: " << key_der_fp.value();
+      return false;
+    }
+    return true;
+  }
+
   // Return the substring of 's'
   // starting with 'begin' and ending with 'end' (inclusive)
   std::string GetCertSection(const std::string& s,
@@ -381,16 +403,16 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
     return s.substr(idx0, (idx1 + end.length()) - idx0);
   }
 
-  std::string EscapeString(const std::string& instr) {
-    std::string res;
+  bool CheckString(const std::string& instr) {
     for (std::string::const_iterator iter = instr.begin();
          iter != instr.end(); ++iter) {
       char c = *iter;
-      if (c == '"')
-        res.push_back('\\');
-      res.push_back(c);
+      if (c == '"') {
+        LOG(ERROR) << "Invalid string: " << instr;
+        return false;
+      }
     }
-    return res;
+    return true;
   }
 
   bool CallSystem(const std::string& cmd) {
@@ -440,10 +462,13 @@ class Pkcs11CertificateHandlerOpenSslPkcs11Engine :
     // *TODO: replace with calls to libopenssl to avoid system() call.
     std::string keyid = slot_handler()->GetKeyIdentifier(label);
     std::stringstream cmd;
+    if (!CheckString(subject)) {
+      return false;
+    }
     cmd << "openssl req -new -batch"
         << " -config " << engine_config_file_ << " -engine pkcs11"
         << " -key " << keyid << " -keyform engine"
-        << " -subj \"" << EscapeString(subject) << "\""
+        << " -subj \"" << subject << "\""
         << " -out " << csr_fp.value();
     CallSystem(cmd.str());
 
@@ -523,7 +548,7 @@ class Pkcs11SlotHandlerInMemory : public Pkcs11SlotHandler {
   }
 
   virtual bool AddCertificate(const std::string& label,
-                              const std::vector<char>& cert,
+                              const chromeos::Blob& cert,
                               const std::string& subject) {
     Object* obj = GetObject(label);
     if (!obj) {
@@ -532,6 +557,13 @@ class Pkcs11SlotHandlerInMemory : public Pkcs11SlotHandler {
     }
     obj->subject_ = subject;
     obj->cert_ = cert;
+    return true;
+  }
+
+  virtual bool AddPrivateKey(const std::string& label,
+                             const std::string& subject,
+                             const chromeos::Blob& key) {
+    // Don't store the private key in memory
     return true;
   }
 
@@ -587,9 +619,9 @@ class Pkcs11SlotHandlerInMemory : public Pkcs11SlotHandler {
     std::string label_;
     std::string key_identifier_;
     std::string passphrase_;
-    std::string public_key_;
     std::string subject_;
-    std::vector<char> cert_;
+    std::string public_key_;
+    chromeos::Blob cert_;
   };
 
   const Object* GetObject(const std::string& label) const {
@@ -793,8 +825,9 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
     CK_BYTE idstr[IDSTR_MAX_LENGTH];
     CK_ULONG idstrlen;
     if (!GetKeyIdStr(object->key_identifier_,
-                     &idstr[0], &idstrlen, IDSTR_MAX_LENGTH))
+                     &idstr[0], &idstrlen, IDSTR_MAX_LENGTH)) {
       return false;
+    }
 
     int public_key_n_attr = 0;
     CK_ATTRIBUTE public_key_template[16];
@@ -866,7 +899,7 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
   }
 
   virtual bool AddCertificate(const std::string& label,
-                              const std::vector<char>& cert,
+                              const chromeos::Blob& cert,
                               const std::string& subject) {
     Object* object;
     SessionHandle session(OpenSession(label, &object));
@@ -880,13 +913,14 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
     CK_BYTE idstr[IDSTR_MAX_LENGTH];
     CK_ULONG idstrlen;
     if (!GetKeyIdStr(object->key_identifier_,
-                     &idstr[0], &idstrlen, IDSTR_MAX_LENGTH))
+                     &idstr[0], &idstrlen, IDSTR_MAX_LENGTH)) {
       return false;
+    }
 
     // Add the certifiacte object
-    CK_BBOOL is_token = TRUE;
     CK_OBJECT_CLASS cert_class = CKO_CERTIFICATE;
     CK_CERTIFICATE_TYPE cert_type = CKC_X_509;
+    CK_BBOOL is_token = TRUE;
 
     CK_ATTRIBUTE cert_template[16];
     int n_attr = 0;
@@ -896,18 +930,90 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
              &cert_type, sizeof(cert_type));
     FillAttr(&cert_template[n_attr++], CKA_TOKEN,
              &is_token, sizeof(is_token));
-    FillStringAttr(&cert_template[n_attr++], CKA_LABEL,
-                   label);
-    FillStringAttr(&cert_template[n_attr++], CKA_SUBJECT,
-                   subject);
+    FillStringAttr(&cert_template[n_attr++], CKA_LABEL, label);
+    FillStringAttr(&cert_template[n_attr++], CKA_SUBJECT, subject);
     FillAttr(&cert_template[n_attr++], CKA_ID,
              idstr, idstrlen);
     FillAttr(&cert_template[n_attr++], CKA_VALUE,
              (CK_VOID_PTR)(&(cert.front())), cert.size());
 
+    LOG(INFO) << "Calling C_CreateObject for certificate.";
     CK_OBJECT_HANDLE cert_obj;
     CK_RV rv = C_CreateObject(session.handle(),
                               cert_template, n_attr, &cert_obj);
+    if (rv != CKR_OK) {
+      LOG(ERROR) << "C_CreateObject error: " << rv;
+      return false;
+    }
+
+    return true;
+  }
+
+  virtual bool AddPrivateKey(const std::string& label,
+                             const std::string& subject,
+                             const chromeos::Blob& key) {
+    Object* object;
+    SessionHandle session(OpenSession(label, &object));
+    if (!session.handle())
+      return false;
+
+    const size_t IDSTR_MAX_LENGTH = 8;
+    CK_BYTE idstr[IDSTR_MAX_LENGTH];
+    CK_ULONG idstrlen;
+    if (!GetKeyIdStr(object->key_identifier_,
+                     &idstr[0], &idstrlen, IDSTR_MAX_LENGTH)) {
+      return false;
+    }
+
+    // Add the private key object
+    CK_OBJECT_CLASS key_class = CKO_PRIVATE_KEY;
+    CK_CERTIFICATE_TYPE key_type = CKK_RSA;
+    CK_BBOOL is_token = TRUE;
+    CK_BBOOL is_private = TRUE;
+    CK_BBOOL is_sensitive = TRUE;
+
+    RsaKeyInfo rsa;
+    if (!ParseRSAPrivateKey(key, &rsa)) {
+      return false;
+    }
+
+    CK_ATTRIBUTE key_template[32];
+    int n_attr = 0;
+    FillAttr(&key_template[n_attr++], CKA_CLASS,
+             &key_class, sizeof(key_class));
+    FillAttr(&key_template[n_attr++], CKA_KEY_TYPE,
+             &key_type, sizeof(key_type));
+    FillAttr(&key_template[n_attr++], CKA_TOKEN,
+             &is_token, sizeof(is_token));
+    FillAttr(&key_template[n_attr++], CKA_PRIVATE,
+             &is_token, sizeof(is_private));
+    FillAttr(&key_template[n_attr++], CKA_SENSITIVE,
+             &is_token, sizeof(is_sensitive));
+    FillStringAttr(&key_template[n_attr++], CKA_LABEL, label);
+    FillAttr(&key_template[n_attr++], CKA_ID,
+             idstr, idstrlen);
+    FillStringAttr(&key_template[n_attr++], CKA_SUBJECT, subject);
+    FillAttr(&key_template[n_attr++], CKA_MODULUS,
+             rsa.modulus, rsa.modulus_len);
+    FillAttr(&key_template[n_attr++], CKA_PUBLIC_EXPONENT,
+             rsa.public_exp, rsa.public_exp_len);
+    FillAttr(&key_template[n_attr++], CKA_PRIVATE_EXPONENT,
+             rsa.private_exp, rsa.private_exp_len);
+    FillAttr(&key_template[n_attr++], CKA_PRIME_1,
+             rsa.prime_1, rsa.prime_1_len);
+    FillAttr(&key_template[n_attr++], CKA_PRIME_2,
+             rsa.prime_2, rsa.prime_2_len);
+    FillAttr(&key_template[n_attr++], CKA_EXPONENT_1,
+             rsa.exp_1, rsa.exp_1_len);
+    FillAttr(&key_template[n_attr++], CKA_EXPONENT_2,
+             rsa.exp_2, rsa.exp_2_len);
+    FillAttr(&key_template[n_attr++], CKA_COEFFICIENT,
+             rsa.coefficient, rsa.coefficient_len);
+
+    LOG(INFO) << "Calling C_CreateObject for private key.";
+    CK_OBJECT_HANDLE key_obj;
+    CK_RV rv = C_CreateObject(session.handle(),
+                              key_template, n_attr, &key_obj);
     if (rv != CKR_OK) {
       LOG(ERROR) << "C_CreateObject error: " << rv;
       return false;
@@ -998,8 +1104,67 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
                  << " label: " << label << " pin: " << user_pin_;
     }
 
-
     return handle;
+  }
+
+  // openssl crypto library interface
+
+  struct RsaKeyInfo {
+    unsigned char *modulus;
+    int modulus_len;
+    unsigned char *public_exp;
+    int public_exp_len;
+    unsigned char *private_exp;
+    int private_exp_len;
+    unsigned char *prime_1;
+    int prime_1_len;
+    unsigned char *prime_2;
+    int prime_2_len;
+    unsigned char *exp_1;
+    int exp_1_len;
+    unsigned char *exp_2;
+    int exp_2_len;
+    unsigned char *coefficient;
+    int coefficient_len;
+  };
+
+  bool RSAGetBN(const BIGNUM* component , unsigned char** dest, int* len) {
+    unsigned char* vec = NULL;
+    int bytes = BN_num_bytes(component);
+    if (bytes) {
+      vec = static_cast<unsigned char*>(malloc(bytes));
+    }
+    if (!vec) {
+      LOG(ERROR) << "Error allocating memory while parsing RSA key.";
+      return false;
+    }
+    int length = BN_bn2bin(component, vec);
+    if (!length) {
+      LOG(ERROR) << "Error parsing component in RSA key.";
+      return false;
+    }
+    *len = length;
+    *dest = vec;
+    return true;
+  }
+
+  bool ParseRSAPrivateKey(const chromeos::Blob& data, RsaKeyInfo* info) {
+    const unsigned char *p = &(data.front());
+    RSA* key = d2i_RSAPrivateKey(NULL, &p, data.size());
+    if (!key) {
+      LOG(ERROR) << "OpenSSL error during RSA private key parsing.";
+      return false;
+    }
+    bool res =
+        RSAGetBN(key->n, &info->modulus, &info->modulus_len) &&
+        RSAGetBN(key->e, &info->public_exp, &info->public_exp_len) &&
+        RSAGetBN(key->d, &info->private_exp, &info->private_exp_len) &&
+        RSAGetBN(key->p, &info->prime_1, &info->prime_1_len) &&
+        RSAGetBN(key->q, &info->prime_2, &info->prime_2_len) &&
+        RSAGetBN(key->dmp1, &info->exp_1, &info->exp_1_len) &&
+        RSAGetBN(key->dmq1, &info->exp_2, &info->exp_2_len) &&
+        RSAGetBN(key->iqmp, &info->coefficient, &info->coefficient_len);
+    return res;
   }
 
   // Note: use casting to store const values as non const.
@@ -1050,6 +1215,20 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
   DISALLOW_COPY_AND_ASSIGN(Pkcs11SlotHandlerOpenCryptoki);
 };
 
+// In "GLaptop mode" we generate the key pair using openssl, and call
+// AddPrivateKey() instead, so GenerateKeyPair() needs to be a no-op.
+class Pkcs11SlotHandlerGLaptop : public Pkcs11SlotHandlerOpenCryptoki {
+ public:
+  Pkcs11SlotHandlerGLaptop() {}
+
+  virtual bool GenerateKeyPair(const std::string& label,
+                               const std::string& passphrase) {
+    return Pkcs11SlotHandlerInMemory::GenerateKeyPair(label, passphrase);
+  };
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(Pkcs11SlotHandlerGLaptop);
+};
 
 // Class CSR
 // CSR JavaScript interface wrapper around Pkcs11CertificateHandler.
@@ -1151,7 +1330,7 @@ class Certificate : public JSObjectWrapper<Certificate> {
   static const char* GetClassName() { return "Certificate"; }
 
   // Accessors
-  const std::vector<char>& certificate() const { return certificate_; }
+  const chromeos::Blob& certificate() const { return certificate_; }
   const std::string& subject() const { return subject_; }
 
   // Certificate handler management
@@ -1165,7 +1344,7 @@ class Certificate : public JSObjectWrapper<Certificate> {
  private:
   // The certificate may contain binary data, so store it as an array of bytes
   // instead of a string.
-  std::vector<char> certificate_;
+  chromeos::Blob certificate_;
   std::string subject_;
   static Pkcs11CertificateHandler* certificate_handler_;
 
@@ -1181,8 +1360,9 @@ Pkcs11CertificateHandler* Certificate::certificate_handler_;
 static v8::Handle<v8::Value> dispatch_CertificateToString(
     const v8::Arguments& args) {
   Certificate* cert = Certificate::Unwrap(args.This());
-  const std::vector<char>& certdata = cert->certificate();
-  v8::Local<v8::String> res = v8::String::New(&(certdata.front()));
+  const chromeos::Blob& certdata = cert->certificate();
+  const char* certstrptr = reinterpret_cast<const char*>(&(certdata.front()));
+  v8::Local<v8::String> res = v8::String::New(certstrptr);
   return res;
 }
 
@@ -1261,13 +1441,14 @@ static v8::Handle<v8::Value> dispatch_generateKeyPair(
 
   // Argumnet 1 is the passphrase (optional)
   std::string passphrase;  // defaults to empty
-  if (args.Length() >= 2) {
+  if (args.Length() >= 1) {
     passphrase = utils::ValueAsUtf8String(args[1]);
+    slot->SetPassphrase(passphrase);
   }
-  slot->SetPassphrase(passphrase);
 
   // Access the slot handler and generate the public/private key pair
-  res = slot->slot_handler()->GenerateKeyPair(slot->label(), passphrase);
+  res = slot->slot_handler()->GenerateKeyPair(slot->label(),
+                                              slot->passphrase());
   if (!res) {
     LOG(ERROR) << "Unable to build key pair with id: " << keyid;
     return v8::False();
@@ -1410,7 +1591,7 @@ bool Pkcs11::Initialize() {
 
 bool Pkcs11::InitializeOpenCryptoki(const std::string& test_cert,
                                     const std::string& engine) {
-  LOG(INFO) << "Initializing pkcs11 with opencryptoki.";
+  LOG(INFO) << "Initializing pkcs11 with opencryptoki and engine:" << engine;
 
   slot_handler_.reset(new Pkcs11SlotHandlerOpenCryptoki());
   slot_handler_->Initialize();
@@ -1420,6 +1601,22 @@ bool Pkcs11::InitializeOpenCryptoki(const std::string& test_cert,
   cert_handler->Initialize();
   cert_handler->SetTestCertificate(test_cert);
   cert_handler->SetEngineConfigFile(engine);
+  cert_handler->SetOutputDER();
+  certificate_handler_.reset(cert_handler);
+
+  return Initialize();
+}
+
+bool Pkcs11::InitializeGLaptop(const std::string& test_cert) {
+  LOG(INFO) << "Initializing pkcs11 with opencryptoki, no ssl engine.";
+
+  slot_handler_.reset(new Pkcs11SlotHandlerGLaptop());
+  slot_handler_->Initialize();
+
+  Pkcs11CertificateHandlerOpenSsl* cert_handler =
+      new Pkcs11CertificateHandlerOpenSsl();
+  cert_handler->Initialize();
+  cert_handler->SetTestCertificate(test_cert);
   cert_handler->SetOutputDER();
   certificate_handler_.reset(cert_handler);
 

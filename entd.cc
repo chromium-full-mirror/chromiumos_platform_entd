@@ -367,6 +367,8 @@ v8::Handle<v8::Object> Entd::ConstructEntd() {
   if (pkcs11_mode_ == "opencryptoki") {
     pkcs11_->InitializeOpenCryptoki(certificate_filename_,
                                     pkcs11_config_filename_);
+  } else if (pkcs11_mode_ == "glaptop") {
+    pkcs11_->InitializeGLaptop(certificate_filename_);
   } else if (pkcs11_mode_ == "openssl") {
     pkcs11_->InitializeOpenSSL(certificate_filename_);
   } else if (!pkcs11_mode_.empty()) {

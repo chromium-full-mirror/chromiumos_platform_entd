@@ -10,6 +10,7 @@
 
 #include <base/basictypes.h>
 #include <base/scoped_ptr.h>
+#include <chromeos/utility.h>
 #include <v8.h>
 
 #include "entd/js_object_wrapper.h"
@@ -39,8 +40,11 @@ class Pkcs11SlotHandler {
   virtual bool BuildSlotObject(const std::string& label) = 0;
   virtual bool GenerateKeyPair(const std::string& label,
                                const std::string& passphrase) = 0;
+  virtual bool AddPrivateKey(const std::string& label,
+                             const std::string& subject,
+                             const chromeos::Blob& key) = 0;
   virtual bool AddCertificate(const std::string& label,
-                              const std::vector<char>& cert,
+                              const chromeos::Blob& cert,
                               const std::string& subject) = 0;
   virtual bool RemoveObjects(const std::string& label) = 0;
   virtual std::string GetKeyIdentifier(const std::string& label) const = 0;
@@ -59,7 +63,7 @@ class Pkcs11CertificateHandler {
                         const std::string& subject,
                         std::string* csr) = 0;
   virtual bool BuildCertificate(const std::string& content,
-                                std::vector<char>* certificate,
+                                chromeos::Blob* certificate,
                                 std::string* subject) = 0;
   // SetSlotHandler() is called from Pkcs11::Initialize with its
   // Pkcs11SlotHandler implementation for the benefit of certificate handlers
@@ -95,6 +99,9 @@ class Pkcs11 : public JSObjectWrapper<Pkcs11> {
   // Call this *instead of* Initialize() to use opencryptoki with openssl
   bool InitializeOpenCryptoki(const std::string& test_cert,
                               const std::string& engine);
+  // Call this *instead of* Initialize() to use openssl to generate keys
+  // and to store the private key in the tpm (like glaptop does)
+  bool InitializeGLaptop(const std::string& test_cert);
   // Call this *instead of* Initialize() to use openssl without opencryptoki
   bool InitializeOpenSSL(const std::string& test_cert);
   // Call this *instead of* Initialize() to use local files
