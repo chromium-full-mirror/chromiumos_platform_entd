@@ -303,6 +303,7 @@ Entd::~Entd() {
 }
 
 bool Entd::allow_dirty_exit = false;
+bool Entd::allow_write_to_file = false;
 
 // Bind "setTimeout" and "clearTimeout" to the entd template object.
 void Entd::SetTemplateBindings(v8::Handle<v8::ObjectTemplate> template_object) {
@@ -394,9 +395,11 @@ bool Entd::StartScriptingEnvironment() {
   global_template->Set(v8::String::NewSymbol("println"),
                        v8::FunctionTemplate::New(dispatch_PrintLn),
                        v8::ReadOnly);
-  global_template->Set(v8::String::NewSymbol("writeToFile"),
-                       v8::FunctionTemplate::New(dispatch_WriteToFile),
-                       v8::ReadOnly);
+  if (allow_write_to_file) {
+    global_template->Set(v8::String::NewSymbol("writeToFile"),
+                         v8::FunctionTemplate::New(dispatch_WriteToFile),
+                         v8::ReadOnly);
+  }
   context_ = v8::Context::New(NULL, global_template);
 
   v8::Context::Scope context_scope(context_);

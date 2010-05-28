@@ -123,7 +123,7 @@ greptest 'pkcs11-cert.js '\
 '"subject":"File: test_data/cert_test.pem"}}}' \
 "pkcs11-cert.js"
 greptest 'pkcs11-openssl.js '\
-'--pkcs11=openssl --cert-file=test_data/cert_test.pem' \
+'--pkcs11=openssl --cert-file=test_data/cert_test.pem --allow-write-to-file' \
 'Subject:/C=US/ST=California/L=Mountain View/O=Google Inc/OU=ChromeOS' \
 "pkcs11-openssl.js"
 greptest "pkcs11-remove.js" "Slot1: undefined"
