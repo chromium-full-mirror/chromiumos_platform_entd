@@ -53,6 +53,8 @@ SRK_PW=1234567890
 # echo "owner: $OWNER_PW"
 # echo "srk: $SRK_PW"
 
+OWNED_FILE="/var/lib/.tpm_owned"
+
 take_ownership () {
   (echo ${OWNER_PW}; echo ${OWNER_PW}; echo ${SRK_PW}; echo ${SRK_PW}) | 
     tpm_takeownership "$@"
@@ -79,6 +81,19 @@ exec 2>${LOG_DIR}/stderr
 # Drop a line in the system logs just so it's easy to check out
 logger "TPM initialization log directory: ${LOG_DIR}"
 
+if [ "0" = $(cat /sys/class/misc/tpm0/device/enabled) ]; then
+  logger "TPM is not enabled!"
+  exit 1
+fi
+
+if [ "1" = $(cat /sys/class/misc/tpm0/device/owned) ]; then
+  logger "TPM is already owned!"
+  exit 0
+else
+  # Clean up existing opencryptoki state, flag for tpm ownership.
+  rm -rf /var/lib/opencryptoki "$OWNED_FILE"
+fi
+
 echo "[-] Creating the endorsement key if needed."
 try tpm_createek
 
@@ -95,5 +110,6 @@ echo "[-] Unrestricting the SRK for PKCS#11 use."
 try unrestrict_srk || err
 
 echo "[-] TPM has been configured for general use."
+touch "$OWNED_FILE"
 exit 0
 
