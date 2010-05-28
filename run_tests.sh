@@ -131,15 +131,13 @@ greptest "pkcs11-remove.js" "Slot1: undefined"
 # Pkcs11 opencryptoki tests (chromeos only)
 if [ 1 == "$CHROMEOS" ]; then
   greptest 'pkcs11-opencryptoki.js '\
-'--pkcs11=opencryptoki --openssl-conf="base_policy/openssl.conf" '\
-'--cert-file=test_data/cert_test.pem' \
-'{"slot1":{"label":"slot1","keyIdentifier":"1033","publicKey":"",'\
+'--pkcs11=glaptop --cert-file=test_data/cert_test.pem' \
+'{"slot1":{"label":"slot1","keyIdentifier":"1234","publicKey":"",'\
 '"certificate":{"content":"",'\
 '"subject":"/C=US/ST=California/L=Mountain View/O=Google Inc/OU=ChromeOS' \
 "pkcs11-opencryptoki.js"
   greptest 'pkcs11-opencryptoki-delete.js '\
-'--pkcs11=opencryptoki --openssl-conf="base_policy/openssl.conf"'\
-'--cert-file=test_data/cert_test.pem' \
+'--pkcs11=glaptop --cert-file=test_data/cert_test.pem' \
 'Slots: {}' \
 "pkcs11-opencryptoki-delete.js"
 fi

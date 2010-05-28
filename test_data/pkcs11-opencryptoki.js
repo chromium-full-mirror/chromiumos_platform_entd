@@ -4,11 +4,10 @@
 
 entd.onLoad =
 function onLoad(manifest) {
-  entd.pkcs11.setUserPin("000000");
-  var passphrase = "1111";
+  entd.pkcs11.setUserPin("111111");
   var slot1 = new entd.pkcs11.SlotObject("slot1");
   // println("slot1: " + slot1.toString());
-  slot1.generateKeyPair("1234", passphrase);
+  slot1.generateKeyPair("1234");
   var subj1 = "/C=US/ST=California/L=Mountain View/O=Google Inc"
 "/OU=ChromeOS/CN=user.onex.corp.google.com"
 "/emailAddress=user@google.com";

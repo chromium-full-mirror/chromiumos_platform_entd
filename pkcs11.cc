@@ -188,6 +188,8 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
         + " -pubkey -out " + csr_fp.value();
     if (!passphrase.empty())
       cmd += " -passout pass:" + passphrase;
+    else
+      cmd += " -nodes";
     CallSystem(cmd);
 
     // get the results from the temporary files
@@ -361,9 +363,9 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
     if (!CheckString(passphrase)) {
       return false;
     }
-    std::string cmd("openssl rsa");
-    cmd += " -inform PEM -in " + key_pem_fp.value();
-    cmd += " -outform DER -out " + key_der_fp.value();
+    std::string cmd = std::string("openssl rsa")
+        + " -inform PEM -in " + key_pem_fp.value()
+        + " -outform DER -out " + key_der_fp.value();
     if (!passphrase.empty())
       cmd += " -passin pass:" + passphrase;
     CallSystem(cmd);
@@ -567,7 +569,8 @@ class Pkcs11SlotHandlerInMemory : public Pkcs11SlotHandler {
     return true;
   }
 
-  virtual bool RemoveObjects(const std::string& label) {
+  virtual bool RemoveObjects(const std::string& label,
+                             const std::string& keyid) {
     Object* obj = GetObject(label);
     if (!obj) {
       LOG(WARNING) << "RemoveObjects called on nonexistant slot object";
@@ -1023,14 +1026,27 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
   }
 
   // Removes all objects in the slot matching 'label'
-  virtual bool RemoveObjects(const std::string& label) {
+  virtual bool RemoveObjects(const std::string& label,
+                             const std::string& keyid) {
     SessionHandle session(OpenSession(label, NULL));
     if (!session.handle())
       return false;
 
-    LOG(INFO) << "Removing Objects matching: " << label;
+    LOG(INFO) << "Removing Objects matching: " << label
+              << ", ID='" << keyid << "'";
 
-    CK_RV rv = C_FindObjectsInit(session.handle(), NULL, 0);
+    const size_t IDSTR_MAX_LENGTH = 8;
+    CK_BYTE idstr[IDSTR_MAX_LENGTH];
+    CK_ULONG idstrlen;
+    if (!GetKeyIdStr(keyid, &idstr[0], &idstrlen, IDSTR_MAX_LENGTH)) {
+      return false;
+    }
+
+    CK_ATTRIBUTE object_template[4];
+    int n_attr = 0;
+    FillStringAttr(&object_template[n_attr++], CKA_LABEL, label);
+    FillAttr(&object_template[n_attr++], CKA_ID, idstr, idstrlen);
+    CK_RV rv = C_FindObjectsInit(session.handle(), object_template, n_attr);
     if (rv != CKR_OK) {
       LOG(ERROR) << "C_FindObjectsInit failed: " << rv;
       return false;
@@ -1223,7 +1239,13 @@ class Pkcs11SlotHandlerGLaptop : public Pkcs11SlotHandlerOpenCryptoki {
 
   virtual bool GenerateKeyPair(const std::string& label,
                                const std::string& passphrase) {
-    return Pkcs11SlotHandlerInMemory::GenerateKeyPair(label, passphrase);
+    Object* obj = GetObject(label);
+    if (!obj) {
+      LOG(WARNING) << "BuildSlotObject must be called before GenerateKeyPair";
+      return false;
+    }
+    obj->passphrase_ = passphrase;
+    return true;
   };
 
  private:
@@ -1441,7 +1463,7 @@ static v8::Handle<v8::Value> dispatch_generateKeyPair(
 
   // Argumnet 1 is the passphrase (optional)
   std::string passphrase;  // defaults to empty
-  if (args.Length() >= 1) {
+  if (!args[1]->IsUndefined()) {
     passphrase = utils::ValueAsUtf8String(args[1]);
     slot->SetPassphrase(passphrase);
   }
@@ -1678,23 +1700,26 @@ static v8::Handle<v8::Value> dispatch_removeSlotObject(
     utils::ThrowV8Exception("Method called on incorrect object type.");
     return v8::False();
   }
-  if (args.Length() < 1) {
+  if (args.Length() < 2) {
     utils::ThrowV8Exception("Not enough parameters.");
     return v8::False();
   }
 
-  // Argument is a SlotObject object.
+  // Argument 0 is a SlotObject object.
   SlotObject* slotobject = SlotObject::GetFromArg(args, 0);
   if (!slotobject) {
     utils::ThrowV8Exception("First argument must be a SlotObject.");
     return v8::False();
   }
 
+  // Argument 1 is a key identifier
+  std::string keyid = utils::ValueAsUtf8String(args[1]);
+
   // Remove the contents of the slot in the slot handler.
   v8::Local<v8::Value> slotlabel =
       slotobject->obj()->Get(v8::String::NewSymbol("label"));
   std::string label = utils::ValueAsUtf8String(slotlabel);
-  pkcs11->slot_handler()->RemoveObjects(label);
+  pkcs11->slot_handler()->RemoveObjects(label, keyid);
 
   // Remove the certificate entry from pkcs11.slots ("delete slots.{label}")
   v8::Local<v8::Value> slotsvalue =
