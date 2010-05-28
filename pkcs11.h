@@ -46,7 +46,8 @@ class Pkcs11SlotHandler {
   virtual bool AddCertificate(const std::string& label,
                               const chromeos::Blob& cert,
                               const std::string& subject) = 0;
-  virtual bool RemoveObjects(const std::string& label) = 0;
+  virtual bool RemoveObjects(const std::string& label,
+                             const std::string& keyid) = 0;
   virtual std::string GetKeyIdentifier(const std::string& label) const = 0;
   virtual std::string GetPassphrase(const std::string& label) const = 0;
   virtual std::string GetPublicKey(const std::string& label) const = 0;

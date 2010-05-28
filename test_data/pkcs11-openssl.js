@@ -6,7 +6,7 @@ entd.onLoad =
 function onLoad(manifest) {
   var slot1 = new entd.pkcs11.SlotObject("slot1");
   // println("slot1: " + slot1.toString());
-  var passphrase = "000000";
+  var passphrase = "0000";
   slot1.generateKeyPair(1234, passphrase);
   var subj1 = "/C=US/ST=California/L=Mountain View/O=Google Inc"
 "/OU=ChromeOS/CN=user.onex.corp.google.com"

@@ -106,7 +106,7 @@ function Policy(manifest) {
 Policy.USE_TPM = true;
 
 // Well known user PIN for the TPM
-Policy.PKCS11_USER_PIN = '000000';
+Policy.PKCS11_USER_PIN = '111111';
 
 /**
  * Set a variable for this policy.
@@ -222,7 +222,7 @@ function PolicyCertificate(policy, id, params) {
   // Note: key_identifier is ignored if not using the TPM
   this.key_identifier = params.key_identifier || '3';
   // Note: key_passphrase is ignored if using the TPM
-  this.key_passphrase = params.key_passphrase || '0000';
+  this.key_passphrase = params.key_passphrase || '';
   this.onInstall = params.onInstall;
 
   util.ensureProperties(params.csr, ['subject', 'host', 'path'], 'params.csr');
@@ -373,8 +373,13 @@ function initiateCSR() {
   // Set the user pin for the PKCS#11 device
   entd.pkcs11.setUserPin(Policy.PKCS11_USER_PIN);
 
-  // Generate a key pair
+  // Initialize the slot token object
   var slot1 = new entd.pkcs11.SlotObject(this.label);
+
+  // Remove any existing matching entries
+  entd.pkcs11.remove(this.label, this.key_identifier);
+
+  // Generate a key pair
   slot1.generateKeyPair(this.key_identifier, this.key_passphrase);
 
   // create a CSR using the generated key pair
