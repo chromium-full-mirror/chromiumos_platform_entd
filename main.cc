@@ -57,6 +57,9 @@ static const char *kRootCAFile = "root-ca-file";
 // If specified, then self-signed server certs are ok for HTTPS
 static const char *kAllowSelfSigned = "allow-self-signed";
 
+// If specified, then writing to a file is allowed
+static const char *kAllowWriteToFile = "allow-write-to-file";
+
 // If specified, don't watch for signals.  This allows the process to exit
 // automatically when all events have been processed.  See the comment in
 // entd.h for a little more info.
@@ -167,6 +170,9 @@ int main(int argc, char** argv) {
 
   if (cl->HasSwitch(switches::kAllowSelfSigned))
     entd::Http::allow_self_signed_certs = true;
+
+  if (cl->HasSwitch(switches::kAllowWriteToFile))
+    entd::Entd::allow_write_to_file = true;
 
   if (!root_ca_file.empty())
     entd::Http::root_ca_file = root_ca_file;

@@ -43,6 +43,11 @@ class Entd : public JSObjectWrapper<Entd> {
   // fails, but not meant for production instances.
   static bool allow_dirty_exit;
 
+  // If true then allow entd JS scripts to write output to a file.
+  // This is useful for testing, and necessary for writing certificates
+  // without the TPM.
+  static bool allow_write_to_file;
+
   void SetUsername(const std::string& username) {
     LOG(INFO) << "Username set to: " << username;
     username_ = username;

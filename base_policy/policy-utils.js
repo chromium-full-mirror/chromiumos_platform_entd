@@ -500,6 +500,7 @@ function onIssuanceComplete(request, response) {
       + ",pin=" + Policy.PKCS11_USER_PIN;
   } else {
     this.path = "/home/chronos/user/Downloads/" + this.label + ".pem";
+    // Note: This requires entd to be run with --allow-write-to-file
     writeToFile(cert.toString(), this.path);
   }
   this.info('Certificate installed to: ' + this.path);
