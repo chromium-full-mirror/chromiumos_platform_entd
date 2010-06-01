@@ -377,7 +377,7 @@ function initiateCSR() {
   var slot1 = new entd.pkcs11.SlotObject(this.label);
 
   // Remove any existing matching entries
-  entd.pkcs11.remove(this.label, this.key_identifier);
+  entd.pkcs11.clear(slot1, this.key_identifier);
 
   // Generate a key pair
   slot1.generateKeyPair(this.key_identifier, this.key_passphrase);
