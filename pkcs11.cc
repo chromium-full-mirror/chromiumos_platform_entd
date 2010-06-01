@@ -1692,7 +1692,7 @@ static v8::Handle<v8::Value> dispatch_setUserPin(
   return v8::True();
 }
 
-static v8::Handle<v8::Value> dispatch_removeSlotObject(
+static v8::Handle<v8::Value> dispatch_clearSlotObject(
     const v8::Arguments& args) {
   // Get the pkcs11 object.
   Pkcs11* pkcs11 = Pkcs11::Unwrap(args.This());
@@ -1721,16 +1721,6 @@ static v8::Handle<v8::Value> dispatch_removeSlotObject(
   std::string label = utils::ValueAsUtf8String(slotlabel);
   pkcs11->slot_handler()->RemoveObjects(label, keyid);
 
-  // Remove the certificate entry from pkcs11.slots ("delete slots.{label}")
-  v8::Local<v8::Value> slotsvalue =
-      pkcs11->obj()->Get(v8::String::NewSymbol("slots"));
-  if (slotsvalue.IsEmpty() || !slotsvalue->IsObject()) {
-    LOG(ERROR) << "'slots' is not an object in pkcs11";
-    return v8::False();
-  }
-  v8::Local<v8::Object> slots = v8::Local<v8::Object>::Cast(slotsvalue);
-  slots->Delete(slotlabel->ToString());
-
   return v8::True();
 }
 
@@ -1744,8 +1734,8 @@ void Pkcs11::SetTemplateBindings(
   template_object->Set(v8::String::NewSymbol("Certificate"),
                        v8::FunctionTemplate::New(Certificate::Construct),
                        v8::ReadOnly);
-  template_object->Set(v8::String::NewSymbol("remove"),
-                       v8::FunctionTemplate::New(dispatch_removeSlotObject),
+  template_object->Set(v8::String::NewSymbol("clear"),
+                       v8::FunctionTemplate::New(dispatch_clearSlotObject),
                        v8::ReadOnly);
   template_object->Set(v8::String::NewSymbol("slots"),
                        v8::Object::New(),
