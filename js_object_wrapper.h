@@ -70,7 +70,7 @@ class JSObjectWrapper {
   }
 
   // Accessors
-  v8::Handle<v8::Object> obj() { return obj_; }
+  v8::Handle<v8::Object> obj() const { return obj_; }
 
  private:
 

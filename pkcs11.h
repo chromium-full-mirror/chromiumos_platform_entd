@@ -21,6 +21,7 @@ class Certificate;
 class CSR;
 class Pkcs11CertificateHandler;
 class Pkcs11SlotHandler;
+class SlotObject;
 
 // Implementation class for interfacing with pkcs11 devices,
 // including generation of Certificate Service Requests (CSR)
@@ -108,6 +109,9 @@ class Pkcs11 : public JSObjectWrapper<Pkcs11> {
   // Call this *instead of* Initialize() to use local files
   bool InitializeLocalFiles(const std::string& csr, const std::string& cert);
 
+  // Adds slot_object to "pkcs11.slots"
+  bool AddJSSlotObject(const SlotObject* slot_object);
+
   // JSObjectWrapper functions
   static const char* GetClassName() { return "pkcs11"; }
   static void SetTemplateBindings(
@@ -124,6 +128,8 @@ class Pkcs11 : public JSObjectWrapper<Pkcs11> {
  private:
   scoped_ptr<Pkcs11CertificateHandler> certificate_handler_;
   scoped_ptr<Pkcs11SlotHandler> slot_handler_;
+
+  void SetupHandlers();
 
   DISALLOW_COPY_AND_ASSIGN(Pkcs11);
 };

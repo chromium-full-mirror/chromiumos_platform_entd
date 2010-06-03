@@ -28,7 +28,9 @@ namespace entd {
 // SlotObject JavaScript interface wrapper around Pkcs11SlotHandler.
 class SlotObject : public JSObjectWrapper<SlotObject> {
  public:
-  SlotObject() : slot_handler_(NULL) { }
+  SlotObject() : slot_handler_(NULL) {}
+  SlotObject(const std::string& label, const std::string& key_id)
+      : label_(label), key_identifier_(key_id), slot_handler_(NULL) {}
   virtual ~SlotObject() {}
 
   virtual bool Initialize();
@@ -52,7 +54,7 @@ class SlotObject : public JSObjectWrapper<SlotObject> {
   // Setters
 
   // Stores the key identifier and passes it to the slot handler.
-  const bool SetKeyIdentifier(const std::string& id) {
+  bool SetKeyIdentifier(const std::string& id) {
     key_identifier_ = id;
     return slot_handler_->SetKeyIdentifier(label_, id);
   }
@@ -72,6 +74,41 @@ class SlotObject : public JSObjectWrapper<SlotObject> {
   DISALLOW_COPY_AND_ASSIGN(SlotObject);
 };
 
+// Class Certificate declaration (implementation below)
+// Certificate JavaScript interface wrapper around Pkcs11CertificateHandler.
+class Certificate : public JSObjectWrapper<Certificate> {
+ public:
+  Certificate() {}
+  virtual ~Certificate() {}
+
+  // JSObjectWrapper Interface
+  virtual void ParseConstructorArgs(
+      v8::Handle<v8::Object> obj, const v8::Arguments& args);
+  static void SetTemplateBindings(
+      v8::Handle<v8::ObjectTemplate> template_object);
+  static const char* GetClassName() { return "Certificate"; }
+
+  // Accessors
+  const chromeos::Blob& certificate() const { return certificate_; }
+  const std::string& subject() const { return subject_; }
+
+  // Certificate handler management
+  static void InitCertificateHandler(Pkcs11CertificateHandler* handler) {
+    certificate_handler_ = handler;
+  }
+  static Pkcs11CertificateHandler* certificate_handler() {
+    return certificate_handler_;
+  }
+
+ private:
+  // The certificate may contain binary data, so store it as an array of bytes
+  // instead of a string.
+  chromeos::Blob certificate_;
+  std::string subject_;
+  static Pkcs11CertificateHandler* certificate_handler_;
+
+  DISALLOW_COPY_AND_ASSIGN(Certificate);
+};
 
 // class Pkcs11CertificateHandlerLocalFile
 // Test Certificate handler that returns the contents of a file.
@@ -775,9 +812,127 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
       res = Pkcs11SlotHandlerInMemory::Initialize();
     }
 
-  // TODO(stevenjb): read existing objects into objects_
-
     return res;
+  }
+
+  bool ReadObjectsFromSlot(Pkcs11* pkcs11) {
+    CK_SESSION_HANDLE session_handle = NULL;
+    CK_RV rv = C_OpenSession(slot_id_,
+                             CKF_SERIAL_SESSION|CKF_RW_SESSION, NULL, NULL,
+                             &session_handle);
+    if (rv != CKR_OK) {
+      LOG(ERROR) << "C_OpenSession failed, error: " << rv
+                 << ", slot: " << slot_index_;
+      return false;
+    }
+
+    // Gather a list of objects in the slot
+    int num_objects = 0;
+
+    rv = C_FindObjectsInit(session_handle, NULL, 0);
+    if (rv != CKR_OK) {
+      LOG(ERROR) << "C_FindObjectsInit failed: " << rv;
+      return false;
+    }
+
+    while (1) {
+      CK_ULONG count;
+      CK_OBJECT_HANDLE object;
+      rv = C_FindObjects(session_handle, &object, 1, &count);
+      if (rv != CKR_OK) {
+        LOG(ERROR) << "C_FindObjects failed: " << rv;
+        return false;
+      }
+      if (count == 0) {
+        // No more objects to read, exit loop.
+        break;
+      }
+      ++num_objects;
+
+      const size_t LABEL_MAX_LENGTH = 256;
+      const size_t IDSTR_MAX_LENGTH = 8;
+      const size_t SUBJECT_MAX_LENGTH = 1024;
+
+      // Define a template with the values we are interested in
+      CK_OBJECT_CLASS obj_class;
+      char obj_label[LABEL_MAX_LENGTH];
+      CK_BYTE idstr[IDSTR_MAX_LENGTH];
+      CK_BYTE subject[SUBJECT_MAX_LENGTH];
+
+      CK_ATTRIBUTE obj_template[] = {
+        { CKA_CLASS, &obj_class, sizeof(obj_class) },
+        { CKA_LABEL, obj_label, LABEL_MAX_LENGTH },
+        { CKA_ID, idstr, IDSTR_MAX_LENGTH },
+        { CKA_SUBJECT, subject, SUBJECT_MAX_LENGTH },
+      };
+      int n_attr = sizeof(obj_template) / sizeof(CK_ATTRIBUTE);
+
+      // Read values into obj_template
+      rv = C_GetAttributeValue(session_handle, object, obj_template, n_attr);
+      if (rv != CKR_OK) {
+        LOG(ERROR) << "C_GetAttributeValue failed: " << rv
+                   << " obj: " << num_objects;
+      }
+      obj_class = *(static_cast<CK_OBJECT_CLASS*>(obj_template[0].pValue));
+      if (obj_class == CKO_CERTIFICATE ||
+          obj_class == CKO_PUBLIC_KEY ||
+          obj_class == CKO_PRIVATE_KEY) {
+        if (obj_template[1].ulValueLen > 0) {
+          // Only parse certificate and key objects with a valid label
+          std::string label = TemplateToString(obj_template[1]);
+          std::string idstr = GetKeyFromId(
+              static_cast<CK_BYTE*>(obj_template[2].pValue),
+              obj_template[2].ulValueLen);
+          std::string subject = TemplateToString(obj_template[3]);
+          Object* obj = AddObject(label);
+          if (!obj->key_identifier_.empty() && obj->key_identifier_ != idstr) {
+            LOG(WARNING) << "Object '" << label << "' "
+                         << "with mismatched key identifers: "
+                         << "'" << obj->key_identifier_ << "'"
+                         << " != '" << idstr << "'";
+          } else {
+            obj->key_identifier_ = idstr;
+            obj->subject_ = subject;
+          }
+        }
+      }
+    }
+
+    C_FindObjectsFinal(session_handle);
+
+    LOG(INFO) << "Found " << num_objects << " objects in slot.";
+
+    // Iterate through the list of objects and generate
+    // SlotObject objects and insert them into pkcs11.slots.
+    for (ObjectMap::iterator iter = objects_.begin();
+         iter != objects_.end(); ++iter) {
+      Object* object = iter->second.get();
+
+      // Build a slot object
+      SlotObject* slot_object = new SlotObject(object->label_,
+                                               object->key_identifier_);
+      slot_object->Initialize();
+      slot_object->SetSlotHandler(pkcs11->slot_handler());
+      slot_object->obj()->Set(v8::String::NewSymbol("label"),
+                              v8::String::New(object->label_.c_str()),
+                              v8::ReadOnly);
+      slot_object->obj()->Set(v8::String::NewSymbol("keyIdentifier"),
+                              v8::String::New(object->key_identifier_.c_str()));
+
+      // Build a certificate
+      Certificate* certificate = new Certificate();
+      certificate->Initialize();
+      certificate->obj()->Set(v8::String::NewSymbol("subject"),
+                              v8::String::New(object->subject_.c_str()));
+
+      // Add the certificate to the slot object
+      slot_object->obj()->Set(v8::String::NewSymbol("certificate"),
+                              certificate->obj());
+
+      // Add the object to pkcs11.slots ("slots[label] = obj")
+      pkcs11->AddJSSlotObject(slot_object);
+    }
+    return true;
   }
 
   // Returns false if the key is longer than a reasonable maximum length.
@@ -1123,6 +1278,11 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
     return handle;
   }
 
+  std::string TemplateToString(const CK_ATTRIBUTE& attr) {
+    const char* value = static_cast<const char*>(attr.pValue);
+    return std::string(value, attr.ulValueLen);
+  }
+
   // openssl crypto library interface
 
   struct RsaKeyInfo {
@@ -1224,6 +1384,12 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
     return true;
   }
 
+  // Inverse of GetKeyIdStr
+  std::string GetKeyFromId(CK_BYTE* idstrp, CK_ULONG idstrlen) {
+    chromeos::Blob bytes = chromeos::Blob(idstrp, idstrp+idstrlen);
+    return chromeos::AsciiEncode(bytes);
+  }
+
   std::string user_pin_;
   CK_ULONG slot_index_;
   CK_SLOT_ID slot_id_;
@@ -1286,7 +1452,7 @@ class CSR : public JSObjectWrapper<CSR> {
 };
 
 // static
-Pkcs11CertificateHandler* CSR::certificate_handler_;
+Pkcs11CertificateHandler* CSR::certificate_handler_ = NULL;
 
 // Base64 encoded version of the CSR
 static v8::Handle<v8::Value> dispatch_CSRToString(const v8::Arguments& args) {
@@ -1337,44 +1503,10 @@ void CSR::ParseConstructorArgs(
 }
 
 
-// Class Certificate
-// Certificate JavaScript interface wrapper around Pkcs11CertificateHandler.
-class Certificate : public JSObjectWrapper<Certificate> {
- public:
-  Certificate() {}
-  virtual ~Certificate() {}
-
-  // JSObjectWrapper Interface
-  virtual void ParseConstructorArgs(
-      v8::Handle<v8::Object> obj, const v8::Arguments& args);
-  static void SetTemplateBindings(
-      v8::Handle<v8::ObjectTemplate> template_object);
-  static const char* GetClassName() { return "Certificate"; }
-
-  // Accessors
-  const chromeos::Blob& certificate() const { return certificate_; }
-  const std::string& subject() const { return subject_; }
-
-  // Certificate handler management
-  static void InitCertificateHandler(Pkcs11CertificateHandler* handler) {
-    certificate_handler_ = handler;
-  }
-  static Pkcs11CertificateHandler* certificate_handler() {
-    return certificate_handler_;
-  }
-
- private:
-  // The certificate may contain binary data, so store it as an array of bytes
-  // instead of a string.
-  chromeos::Blob certificate_;
-  std::string subject_;
-  static Pkcs11CertificateHandler* certificate_handler_;
-
-  DISALLOW_COPY_AND_ASSIGN(Certificate);
-};
+// Class Certificate Implementation
 
 // static
-Pkcs11CertificateHandler* Certificate::certificate_handler_;
+Pkcs11CertificateHandler* Certificate::certificate_handler_ = NULL;
 
 // Returns the contents of the Certificate as a string.
 // Note: if this is binary and not Base64, results may be unexpected.
@@ -1414,9 +1546,6 @@ void Certificate::ParseConstructorArgs(v8::Handle<v8::Object> obj,
     return;
   }
 
-  // Set the 'content' property to the input content
-  obj->Set(v8::String::NewSymbol("content"),
-           content->ToString());
   // Set the 'subject' property to the certificate subject
   obj->Set(v8::String::NewSymbol("subject"),
            v8::String::New(subject_.c_str()));
@@ -1453,13 +1582,14 @@ static v8::Handle<v8::Value> dispatch_generateKeyPair(
 
   // Argument 0 is the key identifier
   v8::Handle<v8::String> v8keyid = args[0]->ToString();
-  slot->obj()->Set(v8::String::NewSymbol("keyIdentifier"), v8keyid);
   std::string keyid = std::string(*v8::String::Utf8Value(v8keyid));
   bool res = slot->SetKeyIdentifier(keyid);
   if (!res) {
     utils::ThrowV8Exception(std::string("Invalid key id: ") + keyid);
     return v8::False();
   }
+  // Set the JS keyIdentifier property
+  slot->obj()->Set(v8::String::NewSymbol("keyIdentifier"), v8keyid);
 
   // Argumnet 1 is the passphrase (optional)
   std::string passphrase;  // defaults to empty
@@ -1475,11 +1605,6 @@ static v8::Handle<v8::Value> dispatch_generateKeyPair(
     LOG(ERROR) << "Unable to build key pair with id: " << keyid;
     return v8::False();
   }
-
-  // Set the JS publicKey property
-  v8::Handle<v8::String> v8_public_key =
-      v8::String::New(slot->GetPublicKey().c_str());
-  slot->obj()->Set(v8::String::NewSymbol("publicKey"), v8_public_key);
 
   return v8::True();
 }
@@ -1557,15 +1682,8 @@ void SlotObject::ParseConstructorArgs(
     return;
   }
 
-  // Add a this to pkcs11.slots ("slots.{label} = {cert}")
-  v8::Local<v8::Value> slotsvalue =
-      pkcs11->obj()->Get(v8::String::NewSymbol("slots"));
-  if (slotsvalue.IsEmpty() || !slotsvalue->IsObject()) {
-    LOG(ERROR) << "'slots' is not an object in pkcs11";
-    return;
-  }
-  v8::Local<v8::Object> slots = v8::Local<v8::Object>::Cast(slotsvalue);
-  slots->Set(v8label->ToString(), obj);
+  // Add this to pkcs11.slots ("slots[label] = obj")
+  pkcs11->AddJSSlotObject(this);
 }
 
 
@@ -1581,6 +1699,19 @@ Pkcs11::~Pkcs11() {
   CleanupTemplate();  // We only have one Pkcs11 instance.
 }
 
+// Called any time slot_handler_ or certificate_handler_ gets set.
+void Pkcs11::SetupHandlers() {
+ // The certificate handler may need access to the slot handler
+  certificate_handler()->SetSlotHandler(slot_handler());
+
+  // Set up the CSR and Certificate sub-classes with the certificate handler.
+  CSR::InitCertificateHandler(certificate_handler());
+  Certificate::InitCertificateHandler(certificate_handler());
+}
+
+// This always gets called first by InitializeXXX()
+// so that obj() is available for other initialization
+// functions (e.g. ReadObjectsFromSlot())
 bool Pkcs11::Initialize() {
   if (slot_handler_.get() == NULL) {
     // Default slot handler
@@ -1592,12 +1723,8 @@ bool Pkcs11::Initialize() {
     certificate_handler_.reset(new Pkcs11CertificateHandlerLocalFile("", ""));
     certificate_handler_->Initialize();
   }
-  // The certificate handler may need access to the slot handler
-  certificate_handler()->SetSlotHandler(slot_handler());
 
-  // Set up the CSR and Certificate sub-classes with the certificate handler.
-  CSR::InitCertificateHandler(certificate_handler());
-  Certificate::InitCertificateHandler(certificate_handler());
+  SetupHandlers();
 
   // Initialize the pkcs11 template specially
   v8::Handle<v8::FunctionTemplate> t = GetTemplate();
@@ -1615,8 +1742,13 @@ bool Pkcs11::InitializeOpenCryptoki(const std::string& test_cert,
                                     const std::string& engine) {
   LOG(INFO) << "Initializing pkcs11 with opencryptoki and engine:" << engine;
 
-  slot_handler_.reset(new Pkcs11SlotHandlerOpenCryptoki());
-  slot_handler_->Initialize();
+  bool res = Initialize();
+
+  Pkcs11SlotHandlerOpenCryptoki* slot_handler =
+      new Pkcs11SlotHandlerOpenCryptoki();
+  slot_handler_.reset(slot_handler);
+  slot_handler->Initialize();
+  slot_handler->ReadObjectsFromSlot(this);
 
   Pkcs11CertificateHandlerOpenSslPkcs11Engine* cert_handler =
       new Pkcs11CertificateHandlerOpenSslPkcs11Engine();
@@ -1626,14 +1758,21 @@ bool Pkcs11::InitializeOpenCryptoki(const std::string& test_cert,
   cert_handler->SetOutputDER();
   certificate_handler_.reset(cert_handler);
 
-  return Initialize();
+  SetupHandlers();
+
+  return res;
 }
 
 bool Pkcs11::InitializeGLaptop(const std::string& test_cert) {
   LOG(INFO) << "Initializing pkcs11 with opencryptoki, no ssl engine.";
 
-  slot_handler_.reset(new Pkcs11SlotHandlerGLaptop());
-  slot_handler_->Initialize();
+  bool res = Initialize();
+
+  Pkcs11SlotHandlerGLaptop* slot_handler =
+      new Pkcs11SlotHandlerGLaptop();
+  slot_handler_.reset(slot_handler);
+  slot_handler->Initialize();
+  slot_handler->ReadObjectsFromSlot(this);
 
   Pkcs11CertificateHandlerOpenSsl* cert_handler =
       new Pkcs11CertificateHandlerOpenSsl();
@@ -1642,11 +1781,15 @@ bool Pkcs11::InitializeGLaptop(const std::string& test_cert) {
   cert_handler->SetOutputDER();
   certificate_handler_.reset(cert_handler);
 
-  return Initialize();
+  SetupHandlers();
+
+  return res;
 }
 
 bool Pkcs11::InitializeOpenSSL(const std::string& test_cert) {
   LOG(INFO) << "Initializing pkcs11 with openssl.";
+
+  bool res = Initialize();
 
   slot_handler_.reset(new Pkcs11SlotHandlerInMemory());
   slot_handler_->Initialize();
@@ -1657,11 +1800,15 @@ bool Pkcs11::InitializeOpenSSL(const std::string& test_cert) {
   cert_handler->SetTestCertificate(test_cert);
   certificate_handler_.reset(cert_handler);
 
-  return Initialize();
+  SetupHandlers();
+
+  return res;
 }
 
 bool Pkcs11::InitializeLocalFiles(const std::string& csr,
                                   const std::string& cert) {
+  bool res = Initialize();
+
   slot_handler_.reset(new Pkcs11SlotHandlerInMemory());
   slot_handler_->Initialize();
 
@@ -1669,7 +1816,22 @@ bool Pkcs11::InitializeLocalFiles(const std::string& csr,
       new Pkcs11CertificateHandlerLocalFile(csr, cert));
   certificate_handler_->Initialize();
 
-  return Initialize();
+  SetupHandlers();
+
+  return res;
+}
+
+// pkcs11[slot_object->label()] = slot_object->obj()
+bool Pkcs11::AddJSSlotObject(const SlotObject* slot_object) {
+  v8::Local<v8::Value> slotsvalue = obj()->Get(v8::String::NewSymbol("slots"));
+  if (slotsvalue.IsEmpty() || !slotsvalue->IsObject()) {
+    LOG(ERROR) << "'slots' is not an object in pkcs11";
+    return false;
+  }
+  v8::Local<v8::Object> slots = v8::Local<v8::Object>::Cast(slotsvalue);
+  v8::Local<v8::String> v8label = v8::String::New(slot_object->label().c_str());
+  slots->Set(v8label, slot_object->obj());
+  return true;
 }
 
 static v8::Handle<v8::Value> dispatch_setUserPin(
