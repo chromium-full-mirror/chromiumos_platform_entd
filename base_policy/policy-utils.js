@@ -102,9 +102,6 @@ function Policy(manifest) {
   this.callbacks = new Policy.Callbacks(this);
 }
 
-// Store keys and certificates in the TPM
-Policy.USE_TPM = true;
-
 // Well known user PIN for the TPM
 Policy.PKCS11_USER_PIN = '111111';
 
@@ -242,13 +239,8 @@ function PolicyCertificate(policy, id, params) {
 
   this.status = this.isInstalled() ? 'Installed' : 'Not Installed';
 
-  if (this.isInstalled() && typeof this.onInstall == "function") {
-    try {
-      this.onInstall(/* firstInstall: */ false);
-    } catch (ex) {
-      this.error('Exception re-running post-install callback: ' + ex);
-    }
-  }
+  if (this.isInstalled())
+    this.onInstall_(/* firstInstall: */ false);
 };
 
 /**
@@ -331,6 +323,31 @@ Policy.Certificate.prototype.findSlotByLabel =
 function findSlotByLabel(label) {
   return entd.pkcs11.slots[label] || null;
 }
+
+/**
+ * Finalize certificate installation and invoke any user specific onInstall
+ * function.
+ *
+ * @param {boolean} firstInstall True if this is the first time the certificate
+ *   has been installed.  False if the certificate was already there when we
+ *   started.
+ */
+Policy.Certificate.prototype.onInstall_ =
+function onInstall(firstInstall) {
+  this.path = 'SETTINGS:key_id=' + this.key_identifier +
+    ',cert_id=' + this.key_identifier +
+    ',pin=' + Policy.PKCS11_USER_PIN;
+
+  this.info('Certificate installed to: ' + this.path);
+
+  if (typeof this.onInstall == 'function') {
+    try {
+      this.onInstall(firstOnstall);
+    } catch (ex) {
+      this.error('Exception running post-install callback: ' + ex);
+    }
+  }
+};
 
 /**
  * Determine if this certificate definition has been successfully installed.
@@ -498,25 +515,7 @@ function onIssuanceComplete(request, response) {
 
   slot.addCertificate(cert);
 
-  if (Policy.USE_TPM) {
-    this.path = "SETTINGS:" 
-      + "key_id=" + this.key_identifier 
-      + ",cert_id=" + this.key_identifier
-      + ",pin=" + Policy.PKCS11_USER_PIN;
-  } else {
-    this.path = "/home/chronos/user/Downloads/" + this.label + ".pem";
-    // Note: This requires entd to be run with --allow-write-to-file
-    writeToFile(cert.toString(), this.path);
-  }
-  this.info('Certificate installed to: ' + this.path);
-
-  if (typeof request.certificate.onInstall == "function") {
-    try {
-      request.certificate.onInstall(/* firstInstall: */ true);
-    } catch (ex) {
-      this.error('Exception running post-install callback: ' + ex);
-    }
-  }
+  this.onInstall_(/* firstInstall: */ true);
 };
 
 
