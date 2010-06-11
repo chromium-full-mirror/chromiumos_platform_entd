@@ -17,8 +17,12 @@
 #include <chromeos/utility.h>
 #include <curl/curl.h>
 #include <opencryptoki/pkcs11.h>
-#include <openssl/rsa.h>
+#include <openssl/bio.h>
 #include <openssl/bn.h>
+#include <openssl/pem.h>
+#include <openssl/rand.h>
+#include <openssl/rsa.h>
+#include <openssl/x509.h>
 
 #include "entd/utils.h"
 
@@ -170,7 +174,6 @@ class Pkcs11CertificateHandlerLocalFile : public Pkcs11CertificateHandler {
       // Use a test string for debugging.
       std::string certstr =
           std::string("<Certificate content=") + content + " />";
-      LOG(INFO) << "Setting certificate = " << certstr;
       certificate->resize(certstr.length());
       memcpy(&(certificate->front()), certstr.c_str(), certstr.length());
       *subject = "Content";
@@ -196,10 +199,6 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
   // If called, openssl will be told to convert the certificate to DER format.
   // DER is the format that opencryptoki expects.
   void SetOutputDER() { use_DER_format_ = true; }
-
-  void SetTestCertificate(const std::string& certfile) {
-    test_certfile_ = certfile;
-  }
 
   virtual bool BuildCSR(const std::string& label,
                         const std::string& subject,
@@ -250,7 +249,8 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
       chromeos::Blob key_der;
       if (!ConvertToDER(private_key_, passphrase, &key_der))
         return false;
-      slot_handler()->AddPrivateKey(label, subject, key_der);
+      if (!slot_handler()->AddPrivateKey(label, subject, key_der))
+        return false;
     }
 
     *csr = csr_;
@@ -269,18 +269,18 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
     FilePath cert_der_fp = temp_dir.Append("cert.der");
     FilePath subject_fp = temp_dir.Append("subject");
 
-    if (!content.empty()) {
-      // Write the content string to a temporary file
-      // to use as the certificate contents.
-      int res = file_util::WriteFile(
-          cert_pem_fp, content.c_str(), content.length());
-      if (res < 0) {
-        LOG(ERROR) << "Unable to write temporary file: " << cert_pem_fp.value();
-        return false;
-      }
-    } else if (!test_certfile_.empty()) {
-      // Use the test certifcate file set at initialization.
-      cert_pem_fp = FilePath(test_certfile_);
+    if (content.empty()) {
+      LOG(ERROR) << "BuildCertificate called with empty content";
+      return false;
+    }
+
+    // Write the content string to a temporary file
+    // to use as the certificate contents.
+    int res = file_util::WriteFile(
+        cert_pem_fp, content.c_str(), content.length());
+    if (res < 0) {
+      LOG(ERROR) << "Unable to write temporary file: " << cert_pem_fp.value();
+      return false;
     }
 
     {
@@ -296,9 +296,7 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
       cmd += " -subject > " + subject_fp.value();
       bool res = CallSystem(cmd);
 
-      if (cert_pem_fp != FilePath(test_certfile_)) {
-        file_util::Delete(cert_pem_fp, false);
-      }
+      file_util::Delete(cert_pem_fp, false);
       if (!res) {
         file_util::Delete(cert_der_fp, false);
         file_util::Delete(subject_fp, false);
@@ -466,7 +464,6 @@ class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
   }
 
   bool use_DER_format_;
-  std::string test_certfile_;
 
   std::string csr_;
   std::string certificate_;
@@ -532,6 +529,379 @@ class Pkcs11CertificateHandlerOpenSslPkcs11Engine :
  private:
   std::string engine_config_file_;
 };
+
+// Class Pkcs11CertificateHandlerLibOpenSsl
+// Implements CSR generation using the openssl crypto library
+class Pkcs11CertificateHandlerLibOpenSsl : public Pkcs11CertificateHandler {
+ public:
+  Pkcs11CertificateHandlerLibOpenSsl() {}
+
+  virtual ~Pkcs11CertificateHandlerLibOpenSsl() {}
+
+  virtual bool Initialize() { return true; }
+
+  virtual bool BuildCSR(const std::string& label,
+                        const std::string& subject,
+                        std::string* csr) {
+    LOG(INFO) << "Generating CSR.";
+
+    // Equivalent to:
+    // openssl req -new -batch -newkey rsa:2048 -subj {subject}
+    // -keyout {private_key} -pubkey -out {csr}
+    // -passout pass:{passphrase}
+
+    // Generate a private key in DER format and pass it to the slot handler
+    EVP_PKEY* pkey = EVP_PKEY_new();
+    RSA* rsa = NULL;  // NOTE: This gets freed with pkey
+    bool res = pkey && GeneratePrivateKey(pkey, &rsa)
+        && rsa && PrivateKeyToDER(rsa, &private_key_der_);
+
+    if (!res) {
+      LOG(ERROR) << "Error generating RSA key.";
+      EVP_PKEY_free(pkey);
+      return false;
+    }
+
+    // Generate a CSR request using the private key
+    X509_REQ* req = X509_REQ_new();
+    res = req && SetX509Req(pkey, subject, req);
+
+    EVP_PKEY_free(pkey);
+
+    if (!res) {
+      LOG(ERROR) << "Error generating X509 Request.";
+      X509_REQ_free(req);
+      return false;
+    }
+
+    // Extract the CSR and Public Key components in PEM format
+    res = X509ReqPublicKeyToPEM(req, &public_key_)
+        && X509ReqToPEM(req, &csr_);
+
+    X509_REQ_free(req);
+
+    if (!res) {
+      LOG(ERROR) << "Error extracting data from X509 Request.";
+      return false;
+    }
+
+    // Store the private key in the slot handler (e.g. TPM device)
+    if (!slot_handler()->AddPrivateKey(label, subject, private_key_der_))
+      return false;
+
+    *csr = csr_;
+
+    return true;
+  }
+
+  virtual bool BuildCertificate(const std::string& content,
+                                chromeos::Blob* certificate,
+                                std::string* subject) {
+    LOG(INFO) << "Building Certificate.";
+
+    // Equivalent to:
+    // openssl x509 -inform PEM -in content -outform DER -subject subject
+    if (content.empty()) {
+      LOG(ERROR) << "BuildCertificate called with empty content";
+      return false;
+    }
+
+    // Convert 'content' to a DER Blob and extract the subject
+    X509* cert = NULL;
+    bool res = X509CertificateToDER(content, &cert, certificate)
+        && X509CertificateToSubject(cert, subject);
+    X509_free(cert);
+
+    if (!res) {
+      LOG(ERROR) << "Error in X509 Certificate parsing.";
+      return false;
+    }
+
+    return true;
+  }
+
+ private:
+  // Utility class and functions for interfacing with the openssl BIO interface
+
+  // BioMem allocates an in-memory BIO instance and frees it on destruction.
+  class BioMem {
+   public:
+    static BioMem* Create() {
+      BioMem* biomem = new BioMem();
+      if (!biomem || !biomem->InitBio()) {
+        LOG(ERROR) << "Error initializing BIO";
+        delete biomem;
+        return NULL;
+      }
+      return biomem;
+    }
+    static BioMem* CreateFromString(const std::string& data) {
+      BioMem* biomem = new BioMem();
+      if (!biomem || !biomem->InitBioFromString(data)) {
+        LOG(ERROR) << "Error initializing BIO from string";
+        delete biomem;
+        return NULL;
+      }
+      return biomem;
+    }
+    ~BioMem() {
+      BIO_free(bio_);
+    }
+    // Extract a std::string from the BIO instance
+    bool GetBIOString(std::string* str) {
+      char* mem = 0;
+      long bytes = BIO_get_mem_data(bio(), &mem);
+      if (bytes == 0 || !mem) {
+        return false;
+      }
+      *str = std::string(mem, mem + bytes);
+      return true;
+    }
+
+    // Extract a Blob from the BIO instance
+    bool GetBIOBlob(chromeos::Blob* der) {
+      char* mem = 0;
+      long bytes = BIO_get_mem_data(bio(), &mem);
+      if (bytes == 0 || !mem) {
+        return false;
+      }
+      unsigned char* umem = reinterpret_cast<unsigned char*>(mem);
+      *der = chromeos::Blob(umem, umem + bytes);
+      return true;
+    }
+    BIO* bio() const { return bio_; }
+   private:
+    BioMem() : bio_(NULL) {};
+    // The default init is typically used to receive then extract data
+    bool InitBio() {
+      bio_ = BIO_new(BIO_s_mem());
+      return (bio_ != NULL);
+    }
+    // The string init creates a BIO instance with the string contents
+    // to pass to openssl functions
+    bool InitBioFromString(const std::string& data) {
+      char* bytes = const_cast<char*>(data.c_str());
+      bio_ = BIO_new_mem_buf(bytes, data.size());
+      return (bio_ != NULL);
+    }
+    BIO* bio_;
+  };
+
+  // Private key related functions.
+
+  bool GeneratePrivateKey(EVP_PKEY* pkey, RSA** rsap) {
+    // Get the default RAND file name from the crypto library (~/.rnd)
+    char rand_file_name[kMaxFilePath];
+    if (RAND_file_name(rand_file_name, kMaxFilePath) == NULL)
+      return false;
+    // Expand the filename ($USERNAME -> user)
+    std::string rand_file_name_exp = utils::ExpandFilePath(rand_file_name);
+
+    // First try to load the filename returned.
+    // If that fails (e.g. it doesn't exist), use /dev/urandom
+    if (RAND_load_file(rand_file_name_exp.c_str(), -1) == 0) {
+      const char* urandom_filename = "/dev/urandom";
+      LOG(WARNING) << "Unable to load RAND file: " << rand_file_name_exp
+                   << " trying " << urandom_filename;
+      if (RAND_load_file(urandom_filename, -1) == 0) {
+        LOG(ERROR) << "Unable to load " << urandom_filename;
+        return false;
+      }
+    }
+
+    // Generate the RSA key and an EVP_PKEY wrapper
+    RSA* rsa = RSA_generate_key(kRsaKeyLength, kRsaKeyExponent, NULL, NULL);
+    if (!rsa)
+      return false;
+    if (!EVP_PKEY_assign_RSA(pkey, rsa)) {
+      RSA_free(rsa);  // rsa won't be freed with pkey if assign failed.
+      return false;
+    }
+
+    // Write to the RAND file
+    LOG(INFO) << "Writing to RAND file: " << rand_file_name_exp;
+    if (RAND_write_file(rand_file_name_exp.c_str()) == 0) {
+      LOG(ERROR) << "Unable to write to RAND file: " << rand_file_name_exp;
+      return false;
+    }
+
+    *rsap = rsa;
+
+    return true;
+  }
+
+  bool PrivateKeyToDER(RSA* rsa, chromeos::Blob* der) {
+    scoped_ptr<BioMem> bio_mem(BioMem::Create());
+    if (!bio_mem.get())
+      return false;
+    bool res = i2d_RSAPrivateKey_bio(bio_mem->bio(), rsa)
+        && bio_mem->GetBIOBlob(der);
+    return res;
+  }
+
+  // X509 Request generation helper functions
+
+  // Find the first instance of 'c' in string 's', skipping over escape
+  // sequences (e.g if c == '/' skip '\/')
+  std::string::size_type FindUnescaped(const std::string& s,
+                                       char c,
+                                       std::string::size_type start) {
+    if (start >= s.length())
+      return std::string::npos;
+    for (std::string::const_iterator iter = s.begin() + start;
+         iter != s.end(); ++iter) {
+      char c1 = *iter;
+      if (c1 == '\\') {
+        ++iter;  // skip the '\', the loop will skip the next char
+        if (iter == s.end())
+          break;
+      } else {
+        if (c1 == c)
+          return iter - s.begin();
+      }
+    }
+    return std::string::npos;
+  }
+
+  // Custom tokenizer that handles escaped characters
+  // Sample subject:
+  // /C=US/ST=SF\/California/emailAddress=user@google.com"
+
+  // Parse the subject and add the name/type pairs to an X509_NAME.
+  bool ParseSubject(const std::string& subject, X509_NAME* name) {
+    if (subject.empty())
+      return false;
+
+    std::string::size_type start = 0;
+    while (start != std::string::npos) {
+      if (subject[start] != '/') {
+        LOG(ERROR) << "Subject must start with '/'";
+        return false;
+      }
+      ++start;  // skip leading '/'
+
+      // Find the next '/' (or npos to indicate the end of the string)
+      std::string::size_type end = FindUnescaped(subject, '/', start);
+
+      // Build the token amd split it at '=' into type/value
+      std::string token;
+      if (end == std::string::npos)
+        token = subject.substr(start);
+      else
+        token = subject.substr(start, end - start);
+      if (token.empty()) {
+        LOG(ERROR) << "Subject contains an invalid entry at: " << start;
+        return false;
+      }
+      std::string::size_type eq = FindUnescaped(token, '=', 0);
+      if (eq == std::string::npos) {
+        LOG(ERROR) << "Subject entry is missing '=': '" << token << "'";
+        return false;
+      }
+      std::string type = token.substr(0, eq);
+      std::string value = token.substr(eq+1);
+
+      if (type.length() == 0) {
+        LOG(ERROR) << "Subject entry has no type: '" << token << "'";
+        return false;
+      }
+
+      // Add the type/value pair to the X509_NAME
+      const unsigned char* bytes =
+          reinterpret_cast<const unsigned char*>(value.c_str());
+      if (!X509_NAME_add_entry_by_txt(name, type.c_str(), MBSTRING_ASC,
+                                      bytes, value.size(), -1, 0)) {
+        return false;
+      }
+
+      start = end;  // start at next '/' (or npos)
+    }
+
+    return true;
+  }
+
+  // X509 Request functions
+
+  bool SetX509Req(EVP_PKEY* pkey, const std::string& subject,
+                  X509_REQ* req) {
+    if (!X509_REQ_set_version(req, 0L))  // version 1
+      return false;
+    X509_NAME* name = X509_NAME_new();
+    if (!name)
+      return false;
+    bool res = ParseSubject(subject, name)
+        && X509_REQ_set_subject_name(req, name)
+        && X509_REQ_set_pubkey(req, pkey)
+        && X509_REQ_sign(req, pkey, EVP_sha1());
+    X509_NAME_free(name);
+    return res;
+  }
+
+  bool X509ReqPublicKeyToPEM(X509_REQ* req, std::string* pub_key_str) {
+    scoped_ptr<BioMem> bio_mem(BioMem::Create());
+    if (!bio_mem.get())
+      return false;
+    EVP_PKEY* pub_key = X509_REQ_get_pubkey(req);
+    if (!pub_key)
+      return false;
+    bool res = PEM_write_bio_PUBKEY(bio_mem->bio(), pub_key)
+        &&  bio_mem->GetBIOString(pub_key_str);
+    EVP_PKEY_free(pub_key);
+    return res;
+  }
+
+  bool X509ReqToPEM(X509_REQ* req, std::string* req_str) {
+    scoped_ptr<BioMem> bio_mem (BioMem::Create());
+    if (!bio_mem.get())
+      return false;
+    bool res = PEM_write_bio_X509_REQ(bio_mem->bio(), req)
+        && bio_mem->GetBIOString(req_str);
+    return res;
+  }
+
+  // X509 Certificte functions
+
+  bool X509CertificateToDER(const std::string& content,
+                          X509** cert, chromeos::Blob* der) {
+    scoped_ptr<BioMem> bio_content(BioMem::CreateFromString(content));
+    if (!bio_content.get())
+      return false;
+    bool res = PEM_read_bio_X509(bio_content->bio(), cert, NULL, NULL);
+    if (!res)
+      return false;
+    scoped_ptr<BioMem> bio_cert(BioMem::Create());
+    if (!bio_cert.get())
+      return false;
+    res = i2d_X509_bio(bio_cert->bio(), *cert)
+        && bio_cert->GetBIOBlob(der);
+    return res;
+  }
+
+  bool X509CertificateToSubject(X509* cert, std::string* subject) {
+    X509_NAME* name = X509_get_subject_name(cert);
+    const int NAME_BUF_LEN = 1024;
+    char name_buf[NAME_BUF_LEN];
+    if (!X509_NAME_oneline(name, name_buf, NAME_BUF_LEN))
+      return false;
+    subject->assign(name_buf);
+    return true;
+  }
+
+  static const long kRsaKeyLength;
+  static const long kRsaKeyExponent;
+  static const long kMaxFilePath;
+
+  std::string csr_;
+  std::string certificate_;
+  std::string public_key_;
+  chromeos::Blob private_key_der_;
+};
+
+// Use 2048 bits for the key length, and an exponent of 0x10001.
+const long Pkcs11CertificateHandlerLibOpenSsl::kRsaKeyLength = 2048;
+const long Pkcs11CertificateHandlerLibOpenSsl::kRsaKeyExponent = 0x10001;
+// Max number of chars for local array allocation for file paths.
+const long Pkcs11CertificateHandlerLibOpenSsl::kMaxFilePath = 1024;
 
 
 // Class Pkcs11SlotHandlerInMemory
@@ -606,13 +976,7 @@ class Pkcs11SlotHandlerInMemory : public Pkcs11SlotHandler {
     return true;
   }
 
-  virtual bool RemoveObjects(const std::string& label,
-                             const std::string& keyid) {
-    Object* obj = GetObject(label);
-    if (!obj) {
-      LOG(WARNING) << "RemoveObjects called on nonexistant slot object";
-      return false;
-    }
+  virtual bool RemoveObjects(const std::string& label) {
     DeleteObject(label);
     return true;
   }
@@ -832,6 +1196,7 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
     rv = C_FindObjectsInit(session_handle, NULL, 0);
     if (rv != CKR_OK) {
       LOG(ERROR) << "C_FindObjectsInit failed: " << rv;
+      C_CloseSession(session_handle);
       return false;
     }
 
@@ -841,6 +1206,7 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
       rv = C_FindObjects(session_handle, &object, 1, &count);
       if (rv != CKR_OK) {
         LOG(ERROR) << "C_FindObjects failed: " << rv;
+        C_CloseSession(session_handle);
         return false;
       }
       if (count == 0) {
@@ -900,7 +1266,7 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
 
     C_FindObjectsFinal(session_handle);
 
-    LOG(INFO) << "Found " << num_objects << " objects in slot.";
+    LOG(INFO) << "Found " << num_objects << " distinct objects in slot.";
 
     // Iterate through the list of objects and generate
     // SlotObject objects and insert them into pkcs11.slots.
@@ -932,6 +1298,7 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
       // Add the object to pkcs11.slots ("slots[label] = obj")
       pkcs11->AddJSSlotObject(slot_object);
     }
+    C_CloseSession(session_handle);
     return true;
   }
 
@@ -966,8 +1333,14 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
 
   virtual bool GenerateKeyPair(const std::string& label,
                                const std::string& passphrase) {
-    Object* object;
-    SessionHandle session(OpenSession(label, &object));
+    LOG(INFO) << "Generating Key Pair.";
+
+    Object* object = GetObject(label);
+    if (!object) {
+      LOG(ERROR) << "BuildSlotObject must be called before GenerateKeyPair.";
+      return false;
+    }
+    SessionHandle session(OpenSession(label));
     if (!session.handle())
       return false;
 
@@ -1042,7 +1415,6 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
     CK_OBJECT_HANDLE public_key_handle;
     CK_OBJECT_HANDLE private_key_handle;
 
-    LOG(INFO) << "Calling C_GenerateKeyPair().";
     CK_RV rv = C_GenerateKeyPair(session.handle(), &mechanism,
                                  public_key_template, public_key_n_attr,
                                  private_key_template, private_key_n_attr,
@@ -1059,8 +1431,14 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
   virtual bool AddCertificate(const std::string& label,
                               const chromeos::Blob& cert,
                               const std::string& subject) {
-    Object* object;
-    SessionHandle session(OpenSession(label, &object));
+    LOG(INFO) << "Adding Certificate.";
+
+    Object* object = GetObject(label);
+    if (!object) {
+      LOG(ERROR) << "BuildSlotObject must be called before AddCertificate.";
+      return false;
+    }
+    SessionHandle session(OpenSession(label));
     if (!session.handle())
       return false;
 
@@ -1095,7 +1473,6 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
     FillAttr(&cert_template[n_attr++], CKA_VALUE,
              (CK_VOID_PTR)(&(cert.front())), cert.size());
 
-    LOG(INFO) << "Calling C_CreateObject for certificate.";
     CK_OBJECT_HANDLE cert_obj;
     CK_RV rv = C_CreateObject(session.handle(),
                               cert_template, n_attr, &cert_obj);
@@ -1110,8 +1487,14 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
   virtual bool AddPrivateKey(const std::string& label,
                              const std::string& subject,
                              const chromeos::Blob& key) {
-    Object* object;
-    SessionHandle session(OpenSession(label, &object));
+    LOG(INFO) << "Adding Private Key.";
+
+    Object* object = GetObject(label);
+    if (!object){
+      LOG(ERROR) << "BuildSlotObject must be called before AddPrivateKey.";
+      return false;
+    }
+    SessionHandle session(OpenSession(label));
     if (!session.handle())
       return false;
 
@@ -1168,7 +1551,6 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
     FillAttr(&key_template[n_attr++], CKA_COEFFICIENT,
              rsa.coefficient, rsa.coefficient_len);
 
-    LOG(INFO) << "Calling C_CreateObject for private key.";
     CK_OBJECT_HANDLE key_obj;
     CK_RV rv = C_CreateObject(session.handle(),
                               key_template, n_attr, &key_obj);
@@ -1181,32 +1563,25 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
   }
 
   // Removes all objects in the slot matching 'label'
-  virtual bool RemoveObjects(const std::string& label,
-                             const std::string& keyid) {
-    SessionHandle session(OpenSession(label, NULL));
+  // Note: may be called before BuildSlotObject(), but we still need to
+  // be logged in so that we can remove matching private keys.
+  virtual bool RemoveObjects(const std::string& label) {
+    LOG(INFO) << "Removing Objects matching: " << label;
+
+    SessionHandle session(OpenSession(label));
     if (!session.handle())
       return false;
-
-    LOG(INFO) << "Removing Objects matching: " << label
-              << ", ID='" << keyid << "'";
-
-    const size_t IDSTR_MAX_LENGTH = 8;
-    CK_BYTE idstr[IDSTR_MAX_LENGTH];
-    CK_ULONG idstrlen;
-    if (!GetKeyIdStr(keyid, &idstr[0], &idstrlen, IDSTR_MAX_LENGTH)) {
-      return false;
-    }
 
     CK_ATTRIBUTE object_template[4];
     int n_attr = 0;
     FillStringAttr(&object_template[n_attr++], CKA_LABEL, label);
-    FillAttr(&object_template[n_attr++], CKA_ID, idstr, idstrlen);
     CK_RV rv = C_FindObjectsInit(session.handle(), object_template, n_attr);
     if (rv != CKR_OK) {
       LOG(ERROR) << "C_FindObjectsInit failed: " << rv;
       return false;
     }
 
+    bool res = true;
     int num_objects = 0;
     while (1) {
       CK_ULONG count;
@@ -1214,7 +1589,8 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
       rv = C_FindObjects(session.handle(), &object, 1, &count);
       if (rv != CKR_OK) {
         LOG(ERROR) << "C_FindObjects failed: " << rv;
-        return false;
+        res = false;
+        break;
       }
       if (count == 0) {
         break;
@@ -1224,13 +1600,15 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
       if (rv != CKR_OK) {
         LOG(ERROR) << "C_DestroyObject failed: " << rv
                    << " obj: " << num_objects;
+        res = false;
+        break;
       }
     }
     LOG(INFO) << " Removed " << num_objects << " objects.";
 
     C_FindObjectsFinal(session.handle());
 
-    return true;
+    return res;
   }
 
  private:
@@ -1247,24 +1625,15 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
     CK_SESSION_HANDLE handle_;
   };
 
-  CK_SESSION_HANDLE OpenSession(const std::string& label, Object** objectp) {
+  CK_SESSION_HANDLE OpenSession(const std::string& label) {
     CK_SESSION_HANDLE handle = NULL;
-    ObjectMap::iterator iter = objects_.find(label);
-    if (iter == objects_.end()) {
-      LOG(ERROR) << "BuildSlotObject must be called first.";
-      return NULL;
-    }
-
-    if (objectp) {
-      *objectp = iter->second.get();
-    }
-
     CK_RV rv = C_OpenSession(slot_id_,
                              CKF_SERIAL_SESSION|CKF_RW_SESSION, NULL, NULL,
                              &handle);
     if (rv != CKR_OK) {
       LOG(ERROR) << "C_OpenSession failed, error: " << rv
                  << " label: " << label << " slot: " << slot_index_;
+      return NULL;
     }
     CK_UTF8CHAR* pin_ptr =
         reinterpret_cast<unsigned char*>(const_cast<char*>(user_pin_.c_str()));
@@ -1273,6 +1642,7 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
     if (rv != CKR_OK) {
       LOG(ERROR) << "C_Login failed, error: " << rv
                  << " label: " << label << " pin: " << user_pin_;
+      return NULL;
     }
 
     return handle;
@@ -1599,9 +1969,8 @@ static v8::Handle<v8::Value> dispatch_generateKeyPair(
   }
 
   // Access the slot handler and generate the public/private key pair
-  res = slot->slot_handler()->GenerateKeyPair(slot->label(),
-                                              slot->passphrase());
-  if (!res) {
+  if (!slot->slot_handler()->GenerateKeyPair(slot->label(),
+                                             slot->passphrase())) {
     LOG(ERROR) << "Unable to build key pair with id: " << keyid;
     return v8::False();
   }
@@ -1631,8 +2000,12 @@ static v8::Handle<v8::Value> dispatch_addCertificate(
   }
 
   // Access the slot handler and add the Certificate
-  slot->slot_handler()->AddCertificate(slot->label(),
-                                       cert->certificate(), cert->subject());
+  if (!slot->slot_handler()->AddCertificate(slot->label(),
+                                            cert->certificate(),
+                                            cert->subject())) {
+    utils::ThrowV8Exception("Error adding certificate to PKCS11 device.");
+    return v8::False();
+  }
 
   // Add the certificate to the JS object
   slot->obj()->Set(v8::String::NewSymbol("certificate"), cert->obj());
@@ -1676,8 +2049,7 @@ void SlotObject::ParseConstructorArgs(
   label_ = std::string(*v8::String::Utf8Value(v8label));
 
   // Build the SlotObject
-  bool res = pkcs11->slot_handler()->BuildSlotObject(label_);
-  if (!res) {
+  if (!pkcs11->slot_handler()->BuildSlotObject(label_)) {
     LOG(ERROR) << "Unable to build SlotObject with label: " << label_;
     return;
   }
@@ -1716,12 +2088,14 @@ bool Pkcs11::Initialize() {
   if (slot_handler_.get() == NULL) {
     // Default slot handler
     slot_handler_.reset(new Pkcs11SlotHandlerInMemory());
-    slot_handler_->Initialize();
+    if (!slot_handler_->Initialize())
+      return false;
   }
   if (certificate_handler_.get() == NULL) {
     // Default certificate handler.
     certificate_handler_.reset(new Pkcs11CertificateHandlerLocalFile("", ""));
-    certificate_handler_->Initialize();
+    if (!certificate_handler_->Initialize())
+      return false;
   }
 
   SetupHandlers();
@@ -1738,87 +2112,94 @@ bool Pkcs11::Initialize() {
   return JSObjectWrapper<Pkcs11>::Initialize();
 }
 
-bool Pkcs11::InitializeOpenCryptoki(const std::string& test_cert,
-                                    const std::string& engine) {
+bool Pkcs11::InitializeOpenCryptoki(const std::string& engine) {
   LOG(INFO) << "Initializing pkcs11 with opencryptoki and engine:" << engine;
 
-  bool res = Initialize();
+  if (!Initialize())
+    return false;
 
   Pkcs11SlotHandlerOpenCryptoki* slot_handler =
       new Pkcs11SlotHandlerOpenCryptoki();
   slot_handler_.reset(slot_handler);
-  slot_handler->Initialize();
+  if (!slot_handler->Initialize())
+    return false;
   slot_handler->ReadObjectsFromSlot(this);
 
   Pkcs11CertificateHandlerOpenSslPkcs11Engine* cert_handler =
       new Pkcs11CertificateHandlerOpenSslPkcs11Engine();
-  cert_handler->Initialize();
-  cert_handler->SetTestCertificate(test_cert);
+  if (!cert_handler->Initialize())
+    return false;
   cert_handler->SetEngineConfigFile(engine);
   cert_handler->SetOutputDER();
   certificate_handler_.reset(cert_handler);
 
   SetupHandlers();
 
-  return res;
+  return true;;
 }
 
-bool Pkcs11::InitializeGLaptop(const std::string& test_cert) {
-  LOG(INFO) << "Initializing pkcs11 with opencryptoki, no ssl engine.";
+bool Pkcs11::InitializeGLaptop() {
+  LOG(INFO) << "Initializing pkcs11 with opencryptoki and openssl:libcrypto.";
 
-  bool res = Initialize();
+  if (!Initialize())
+    return false;
 
   Pkcs11SlotHandlerGLaptop* slot_handler =
       new Pkcs11SlotHandlerGLaptop();
   slot_handler_.reset(slot_handler);
-  slot_handler->Initialize();
+  if (!slot_handler->Initialize())
+    return false;
   slot_handler->ReadObjectsFromSlot(this);
 
-  Pkcs11CertificateHandlerOpenSsl* cert_handler =
-      new Pkcs11CertificateHandlerOpenSsl();
-  cert_handler->Initialize();
-  cert_handler->SetTestCertificate(test_cert);
-  cert_handler->SetOutputDER();
+  Pkcs11CertificateHandlerLibOpenSsl* cert_handler =
+      new Pkcs11CertificateHandlerLibOpenSsl();
+  if (!cert_handler->Initialize())
+    return false;
   certificate_handler_.reset(cert_handler);
 
   SetupHandlers();
 
-  return res;
+  return true;
 }
 
-bool Pkcs11::InitializeOpenSSL(const std::string& test_cert) {
+bool Pkcs11::InitializeOpenSSL() {
   LOG(INFO) << "Initializing pkcs11 with openssl.";
 
-  bool res = Initialize();
+  if (!Initialize())
+    return false;
 
   slot_handler_.reset(new Pkcs11SlotHandlerInMemory());
-  slot_handler_->Initialize();
+  if (!slot_handler_->Initialize())
+    return false;
 
   Pkcs11CertificateHandlerOpenSsl* cert_handler =
       new Pkcs11CertificateHandlerOpenSsl();
-  cert_handler->Initialize();
-  cert_handler->SetTestCertificate(test_cert);
+  if (!cert_handler->Initialize())
+    return false;
   certificate_handler_.reset(cert_handler);
 
   SetupHandlers();
 
-  return res;
+  return true;
 }
 
 bool Pkcs11::InitializeLocalFiles(const std::string& csr,
                                   const std::string& cert) {
-  bool res = Initialize();
+  if (!Initialize())
+    return false;
 
   slot_handler_.reset(new Pkcs11SlotHandlerInMemory());
-  slot_handler_->Initialize();
+  if (!slot_handler_->Initialize())
+    return false;
 
   certificate_handler_.reset(
       new Pkcs11CertificateHandlerLocalFile(csr, cert));
-  certificate_handler_->Initialize();
+  if (!certificate_handler_->Initialize())
+    return false;
 
   SetupHandlers();
 
-  return res;
+  return true;
 }
 
 // pkcs11[slot_object->label()] = slot_object->obj()
@@ -1831,6 +2212,19 @@ bool Pkcs11::AddJSSlotObject(const SlotObject* slot_object) {
   v8::Local<v8::Object> slots = v8::Local<v8::Object>::Cast(slotsvalue);
   v8::Local<v8::String> v8label = v8::String::New(slot_object->label().c_str());
   slots->Set(v8label, slot_object->obj());
+  return true;
+}
+
+// delete pkcs11.slots[label]")
+bool Pkcs11::RemoveJSSlotObject(const std::string& label) {
+  v8::Local<v8::Value> slotsvalue = obj()->Get(v8::String::NewSymbol("slots"));
+  if (slotsvalue.IsEmpty() || !slotsvalue->IsObject()) {
+    LOG(ERROR) << "'slots' is not an object in pkcs11";
+    return false;
+  }
+  v8::Local<v8::Object> slots = v8::Local<v8::Object>::Cast(slotsvalue);
+  v8::Local<v8::String> v8label = v8::String::New(label.c_str());
+  slots->Delete(v8label);
   return true;
 }
 
@@ -1849,12 +2243,14 @@ static v8::Handle<v8::Value> dispatch_setUserPin(
 
   // Argument is the pin
   std::string pin = utils::ValueAsUtf8String(args[0]);
-  pkcs11->slot_handler()->SetUserPin(pin);
-
+  if (!pkcs11->slot_handler()->SetUserPin(pin)) {
+    utils::ThrowV8Exception("Error setting PIN for PKCS11 device.");
+    return v8::False();
+  }
   return v8::True();
 }
 
-static v8::Handle<v8::Value> dispatch_clearSlotObject(
+static v8::Handle<v8::Value> dispatch_removeSlotObject(
     const v8::Arguments& args) {
   // Get the pkcs11 object.
   Pkcs11* pkcs11 = Pkcs11::Unwrap(args.This());
@@ -1862,26 +2258,22 @@ static v8::Handle<v8::Value> dispatch_clearSlotObject(
     utils::ThrowV8Exception("Method called on incorrect object type.");
     return v8::False();
   }
-  if (args.Length() < 2) {
+  if (args.Length() < 1) {
     utils::ThrowV8Exception("Not enough parameters.");
     return v8::False();
   }
 
-  // Argument 0 is a SlotObject object.
-  SlotObject* slotobject = SlotObject::GetFromArg(args, 0);
-  if (!slotobject) {
-    utils::ThrowV8Exception("First argument must be a SlotObject.");
+  // Argument 0 is a label.
+  std::string label = utils::ValueAsUtf8String(args[0]);
+
+  // Remove the contents of the slot in the slot handler.
+  if (!pkcs11->slot_handler()->RemoveObjects(label)) {
+    utils::ThrowV8Exception("Error removing objects from PKCS11 device.");
     return v8::False();
   }
 
-  // Argument 1 is a key identifier
-  std::string keyid = utils::ValueAsUtf8String(args[1]);
-
-  // Remove the contents of the slot in the slot handler.
-  v8::Local<v8::Value> slotlabel =
-      slotobject->obj()->Get(v8::String::NewSymbol("label"));
-  std::string label = utils::ValueAsUtf8String(slotlabel);
-  pkcs11->slot_handler()->RemoveObjects(label, keyid);
+  // Remove entry from pkcs11.slots
+  pkcs11->RemoveJSSlotObject(label);
 
   return v8::True();
 }
@@ -1896,8 +2288,8 @@ void Pkcs11::SetTemplateBindings(
   template_object->Set(v8::String::NewSymbol("Certificate"),
                        v8::FunctionTemplate::New(Certificate::Construct),
                        v8::ReadOnly);
-  template_object->Set(v8::String::NewSymbol("clear"),
-                       v8::FunctionTemplate::New(dispatch_clearSlotObject),
+  template_object->Set(v8::String::NewSymbol("remove"),
+                       v8::FunctionTemplate::New(dispatch_removeSlotObject),
                        v8::ReadOnly);
   template_object->Set(v8::String::NewSymbol("slots"),
                        v8::Object::New(),

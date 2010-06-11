@@ -4,6 +4,8 @@
 
 entd.onLoad =
 function onLoad(manifest) {
+  entd.pkcs11.remove("slot1");
+
   var slot1 = new entd.pkcs11.SlotObject("slot1");
   slot1.generateKeyPair("1001");
   var csr1 = new slot1.CSR("subject1");
@@ -16,7 +18,7 @@ function onLoad(manifest) {
   var cert2 = new entd.pkcs11.Certificate("content2");
   slot2.addCertificate(cert2);
 
-  entd.pkcs11.remove(slot1, "1001");
+  entd.pkcs11.remove("slot1");
 
   println("Slot1: " + JSON.stringify(entd.pkcs11.slots["slot1"]));
   println("Slot2: " + JSON.stringify(entd.pkcs11.slots["slot2"]));

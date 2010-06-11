@@ -43,10 +43,10 @@ class Entd : public JSObjectWrapper<Entd> {
   // fails, but not meant for production instances.
   static bool allow_dirty_exit;
 
-  // If true then allow entd JS scripts to write output to a file.
+  // If true then allow entd JS scripts to read and write to files.
   // This is useful for testing, and necessary for writing certificates
   // without the TPM.
-  static bool allow_write_to_file;
+  static bool allow_file_io;
 
   void SetUsername(const std::string& username) {
     LOG(INFO) << "Username set to: " << username;
@@ -66,17 +66,6 @@ class Entd : public JSObjectWrapper<Entd> {
   void SetPolicyFile(const std::string& filename) {
     LOG(INFO) << "Policy file set to: '" << filename << "'";
     policy_filename_ = filename;
-  }
-
-  // If either of these are non-empty,
-  // a test Pkcs11CertificateHandler will be built and passed to Pkcs11()
-  // instead of the default handler.
-  void SetCertificateFiles(const std::string& csr_filename,
-                           const std::string& cert_filename) {
-    LOG(INFO) << "CSR file set to: '" << csr_filename << "'";
-    LOG(INFO) << "Certificate file set to: '" << cert_filename << "'";
-    csr_filename_ = csr_filename;
-    certificate_filename_ = cert_filename;
   }
 
   // Determines how the pkcs11 module will be setup.
@@ -208,8 +197,6 @@ class Entd : public JSObjectWrapper<Entd> {
   std::string utility_filename_;
   std::string manifest_filename_;
   std::string policy_filename_;
-  std::string csr_filename_;
-  std::string certificate_filename_;
   std::string pkcs11_config_filename_;
 
   // Starts out as just the hostname portion of the username, but may be

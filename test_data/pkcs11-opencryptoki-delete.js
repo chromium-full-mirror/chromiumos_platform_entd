@@ -4,15 +4,16 @@
 
 entd.onLoad =
 function onLoad(manifest) {
-  entd.pkcs11.setUserPin("000000");
+  entd.pkcs11.setUserPin("111111");
   var slot1 = new entd.pkcs11.SlotObject("slot1");
-  // Generate a keypair
-  slot1.generateKeyPair("9999")
-  // CSR construction may actually create the key in the TPM
-  var csr1 = new slot1.CSR("/C=Test");
-  // Now remove it
-  entd.pkcs11.remove(slot1, "9999");
+  // Generate a keypair and valid CSR so that we write them to the TPM
+  slot1.generateKeyPair("9999");
+  var subj1 = "/C=US/ST=California/L=Mountain View/O=Google Inc"
+"/OU=ChromeOS/CN=user.onex.corp.google.com"
+"/emailAddress=user@google.com";
+  var csr1 = new slot1.CSR(subj1);
+  entd.pkcs11.remove("slot1");
 
-  print("Slots: ");
-  println(JSON.stringify(entd.pkcs11.slots));
+  print("Slots.slot1: ");
+  println(JSON.stringify(entd.pkcs11.slots["slot1"]));
 }

@@ -15,7 +15,8 @@ function onLoad(manifest) {
   //println("CSR1:\n" + csr1.toString());
   //println("Public Key:\n" + slot1.publicKey.toString());
 
-  var cert1 = new entd.pkcs11.Certificate("");  // Use test certificate
+  var cert_str = readFromFile("test_data/cert_test.pem");
+  var cert1 = new entd.pkcs11.Certificate(cert_str);
   // println("Adding cert1: " + cert1);
   slot1.addCertificate(cert1);
   // println("slot1: " + slot1.toString());

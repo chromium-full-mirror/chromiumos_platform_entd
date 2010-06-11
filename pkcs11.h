@@ -47,8 +47,7 @@ class Pkcs11SlotHandler {
   virtual bool AddCertificate(const std::string& label,
                               const chromeos::Blob& cert,
                               const std::string& subject) = 0;
-  virtual bool RemoveObjects(const std::string& label,
-                             const std::string& keyid) = 0;
+  virtual bool RemoveObjects(const std::string& label) = 0;
   virtual std::string GetKeyIdentifier(const std::string& label) const = 0;
   virtual std::string GetPassphrase(const std::string& label) const = 0;
   virtual std::string GetPublicKey(const std::string& label) const = 0;
@@ -99,18 +98,18 @@ class Pkcs11 : public JSObjectWrapper<Pkcs11> {
   virtual ~Pkcs11();
   virtual bool Initialize();
   // Call this *instead of* Initialize() to use opencryptoki with openssl
-  bool InitializeOpenCryptoki(const std::string& test_cert,
-                              const std::string& engine);
+  bool InitializeOpenCryptoki(const std::string& engine);
   // Call this *instead of* Initialize() to use openssl to generate keys
   // and to store the private key in the tpm (like glaptop does)
-  bool InitializeGLaptop(const std::string& test_cert);
+  bool InitializeGLaptop();
   // Call this *instead of* Initialize() to use openssl without opencryptoki
-  bool InitializeOpenSSL(const std::string& test_cert);
+  bool InitializeOpenSSL();
   // Call this *instead of* Initialize() to use local files
   bool InitializeLocalFiles(const std::string& csr, const std::string& cert);
 
   // Adds slot_object to "pkcs11.slots"
   bool AddJSSlotObject(const SlotObject* slot_object);
+  bool RemoveJSSlotObject(const std::string& label);
 
   // JSObjectWrapper functions
   static const char* GetClassName() { return "pkcs11"; }

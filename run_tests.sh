@@ -67,7 +67,7 @@ function greptest {
 
   grep -q "$pattern" <(echo $out)
   if [ $? != 0 ]; then
-    logfail "$name: pattern not found"
+    logfail "$name: pattern not found: '$pattern'"
     if [ ! -z "$VERBOSE" ]; then
       echo
       echo $cmd
@@ -108,53 +108,54 @@ greptest "http-badrequest.js" "First argument must be a Request object"
 greptest "http-redirect.js" "HTTP COMPLETE"
 
 # Pkcs11 tests.
-greptest "--policy=test_data/pkcs11.js --csr-file=test_data/csr_test.pem" \
+greptest 'pkcs11.js '\
+'--allow-file-io' \
 '{"slot1":{"label":"slot1","keyIdentifier":"key1",'\
-'"publicKey":"<This is a public key>",'\
-'"certificate":{"content":"content1","subject":"Content"}},'\
+'"certificate":{"subject":"Content"}},'\
 '"slot2":{"label":"slot2","keyIdentifier":"key2",'\
-'"publicKey":"<This is a public key>",'\
-'"certificate":{"content":"content2","subject":"Content"}}}' \
+'"certificate":{"subject":"Content"}}}' \
 "pkcs11.js"
 greptest 'pkcs11-cert.js '\
-'--csr-file=test_data/csr_test.pem --cert-file=test_data/cert_test.pem' \
-'{"slot1":{"label":"slot1",'\
-'"certificate":{"content":"content1",'\
-'"subject":"File: test_data/cert_test.pem"}}}' \
+'--allow-file-io' \
+'{"slot1":{"label":"slot1","certificate":{"subject":"Content"}}}' \
 "pkcs11-cert.js"
 greptest 'pkcs11-openssl.js '\
-'--pkcs11=openssl --cert-file=test_data/cert_test.pem --allow-write-to-file' \
+'--pkcs11=openssl --allow-file-io' \
 'Subject:/C=US/ST=California/L=Mountain View/O=Google Inc/OU=ChromeOS' \
 "pkcs11-openssl.js"
 greptest "pkcs11-remove.js" "Slot1: undefined"
 
-# Pkcs11 opencryptoki tests (chromeos only)
-if [ 1 == "$CHROMEOS" ]; then
+# Pkcs11 opencryptoki tests (requires a TPM (or emulator), so chromeos only)
+if [ "$CHROMEOS" == 1 ]; then
   greptest 'pkcs11-opencryptoki.js '\
-'--pkcs11=glaptop --cert-file=test_data/cert_test.pem' \
-'{"slot1":{"label":"slot1","keyIdentifier":"1234","publicKey":"",'\
-'"certificate":{"content":"",'\
+'--pkcs11=glaptop --allow-file-io' \
+'"slot1":{"label":"slot1","keyIdentifier":"1234",'\
+'"certificate":{'\
 '"subject":"/C=US/ST=California/L=Mountain View/O=Google Inc/OU=ChromeOS' \
 "pkcs11-opencryptoki.js"
   greptest 'pkcs11-opencryptoki-delete.js '\
-'--pkcs11=glaptop --cert-file=test_data/cert_test.pem' \
-'Slots: {}' \
+'--pkcs11=glaptop --allow-file-io' \
+'Slots.slot1: undefined' \
 "pkcs11-opencryptoki-delete.js"
 fi
 # Slightly longer running tests.
 greptest "settimeout.js" "string timeout function timeout"
 greptest "cleartimeout.js" "starting timeouts function timeout"
-greptest "simple-shutdown.js" "LOOKS OK"
 
-# Fire off this bg task to make an http request
-(sleep 2; \
-  curl --data-binary '{"function": "stop"}' \
-    -H "Content-Type: application/json; charset=UTF-8" \
-    -H "X-Entd-Request: magic" \
-    localhost:5199/dispatch -so /dev/null) &
+# Test the callback server; doesn't run as-is on chromeos.
+if [ "$CHROMEOS" != 1 ]; then
+  greptest "simple-shutdown.js" "LOOKS OK"
 
-# Then start up the callback server before the timeout fires.
-greptest "simple-callback.js" "Stopping callback server"
+  # Fire off this bg task to make an http request
+  (sleep 2; \
+    curl --data-binary '{"function": "stop"}' \
+      -H "Content-Type: application/json; charset=UTF-8" \
+      -H "X-Entd-Request: magic" \
+      localhost:5199/dispatch -so /dev/null) &
+
+  # Then start up the callback server before the timeout fires.
+  greptest "simple-callback.js" "Stopping callback server"
+fi
 
 echo
 echo "Tests completed: $TESTS"

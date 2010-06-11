@@ -9,20 +9,17 @@ function onLoad(manifest) {
   var passphrase = "0000";
   slot1.generateKeyPair(1234, passphrase);
   var subj1 = "/C=US/ST=California/L=Mountain View/O=Google Inc"
-"/OU=ChromeOS/CN=user.onex.corp.google.com"
-"/emailAddress=user@google.com";
+  + "/OU=ChromeOS/CN=user.onex.corp.google.com"
+  + "/emailAddress=user@google.com";
   var csr1 = new slot1.CSR(subj1);
   //println("CSR1:\n" + csr1.toString());
   //println("Public Key:\n" + slot1.publicKey.toString());
 
-  var cert1 = new entd.pkcs11.Certificate("");  // Use test certificate
+  var cert_str = readFromFile("test_data/cert_test.pem");
+  var cert1 = new entd.pkcs11.Certificate(cert_str);
   // println("Adding cert1: " + cert1);
   slot1.addCertificate(cert1);
   // println("slot1: " + slot1.toString());
 
-  var filename = "certificate.pem";
-  println("Writing certificate to: " + filename);
-  println(" Subject:" + cert1.subject);
-
-  writeToFile(cert1.toString(), filename);
+  println("Certificate Subject:" + cert1.subject);
 }

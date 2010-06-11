@@ -264,10 +264,27 @@ v8::Handle<v8::Value> dispatch_PrintLn(const v8::Arguments& args) {
   return v8::Undefined();
 }
 
+// Called by v8 for the global object's readFromFile() method.
+v8::Handle<v8::Value> dispatch_ReadFromFile(const v8::Arguments& args) {
+  if (args.Length() != 1) {
+    utils::ThrowV8Exception("Missing argument: filePath");
+    return v8::False();
+  }
+  std::string file = utils::ValueAsUtf8String(args[0]);
+  FilePath filepath = FilePath(file);
+  std::string filestr;
+  v8::Handle<v8::String> result;
+  if (file_util::ReadFileToString(filepath, &filestr))
+    result = v8::String::New(filestr.c_str(), filestr.size());
+  if (result.IsEmpty())
+    utils::ThrowV8Exception(std::string("Unable to read file: ") + file);
+  return result;
+}
+
 // Called by v8 for the global object's writeToFile() method.
 v8::Handle<v8::Value> dispatch_WriteToFile(const v8::Arguments& args) {
   if (args.Length() != 2) {
-    utils::ThrowV8Exception("Usage: writeToFile(string, filepath)");
+    utils::ThrowV8Exception("Insufficient arguments.");
     return v8::False();
   }
   std::string s = utils::ValueAsUtf8String(args[0]);
@@ -303,7 +320,7 @@ Entd::~Entd() {
 }
 
 bool Entd::allow_dirty_exit = false;
-bool Entd::allow_write_to_file = false;
+bool Entd::allow_file_io = false;
 
 // Bind "setTimeout" and "clearTimeout" to the entd template object.
 void Entd::SetTemplateBindings(v8::Handle<v8::ObjectTemplate> template_object) {
@@ -338,45 +355,63 @@ v8::Handle<v8::Object> Entd::ConstructEntd() {
   v8::HandleScope handle_scope;
 
   // Build the entd object.
-  JSObjectWrapper<Entd>::Initialize();
+  if (!JSObjectWrapper<Entd>::Initialize()) {
+    LOG(ERROR) << "Error initializing entd";
+    exit(1);
+  }
   v8::Handle<v8::Object> entd = obj();
 
   // Build the flimflam object.
-  flimflam_->Initialize();
+  if (!flimflam_->Initialize()) {
+    LOG(ERROR) << "Error initializing entd.flimflam";
+    exit(1);
+  }
   entd->Set(v8::String::NewSymbol("flimflam"),
             flimflam_->obj(), v8::ReadOnly);
 
   // Build the http object.
   http_.reset(new Http(this, NULL));
-  http_->Initialize();
+  if (!http_->Initialize()) {
+    LOG(ERROR) << "Error initializing entd.http";
+    exit(1);
+  }
   entd->Set(v8::String::NewSymbol("http"),
             http_->obj(), v8::ReadOnly);
 
   // Build the syslog object.
-  syslog_->Initialize();
+  if (!syslog_->Initialize()) {
+    LOG(ERROR) << "Error initializing entd.syslog";
+    exit(1);
+  }
   entd->Set(v8::String::NewSymbol("syslog"),
             syslog_->obj(), v8::ReadOnly);
 
   // Build the callbackServer object.
   callback_server_.reset(new CallbackServer(this));
-  callback_server_->Initialize();
+  if (!callback_server_->Initialize()) {
+    LOG(ERROR) << "Error initializing entd.callback_server";
+    exit(1);
+  }
   entd->Set(v8::String::NewSymbol("callbackServer"),
             callback_server_->obj(), v8::ReadOnly);
 
   // Build the pkcs11 object
+  bool res = false;
   pkcs11_.reset(new Pkcs11(NULL, NULL));
   if (pkcs11_mode_ == "opencryptoki") {
-    pkcs11_->InitializeOpenCryptoki(certificate_filename_,
-                                    pkcs11_config_filename_);
+    res = pkcs11_->InitializeOpenCryptoki(pkcs11_config_filename_);
   } else if (pkcs11_mode_ == "glaptop") {
-    pkcs11_->InitializeGLaptop(certificate_filename_);
+    res = pkcs11_->InitializeGLaptop();
   } else if (pkcs11_mode_ == "openssl") {
-    pkcs11_->InitializeOpenSSL(certificate_filename_);
+    res = pkcs11_->InitializeOpenSSL();
   } else if (!pkcs11_mode_.empty()) {
     LOG(ERROR) << "Unrecognized pkcs11 mode: " << pkcs11_mode_;
-    exit(1);
   } else {
-    pkcs11_->InitializeLocalFiles(csr_filename_, certificate_filename_);
+    res = pkcs11_->Initialize();
+  }
+  if (!res) {
+    LOG(ERROR) << "Error initializing entd.pkcs11";
+    exit(1);
   }
   entd->Set(v8::String::New("pkcs11"),
             pkcs11_->obj(), v8::ReadOnly);
@@ -395,7 +430,10 @@ bool Entd::StartScriptingEnvironment() {
   global_template->Set(v8::String::NewSymbol("println"),
                        v8::FunctionTemplate::New(dispatch_PrintLn),
                        v8::ReadOnly);
-  if (allow_write_to_file) {
+  if (allow_file_io) {
+    global_template->Set(v8::String::NewSymbol("readFromFile"),
+                         v8::FunctionTemplate::New(dispatch_ReadFromFile),
+                         v8::ReadOnly);
     global_template->Set(v8::String::NewSymbol("writeToFile"),
                          v8::FunctionTemplate::New(dispatch_WriteToFile),
                          v8::ReadOnly);

@@ -53,9 +53,9 @@ bool CheckHostnameCharset(const std::string& str) {
 // Reads a file into a v8 string.
 v8::Handle<v8::String> ReadFile(const std::string& name) {
   std::string filestr;
-  file_util::ReadFileToString(FilePath(name), &filestr);
-  v8::Handle<v8::String> result =
-      v8::String::New(filestr.c_str(), filestr.size());
+  v8::Handle<v8::String> result;
+  if (file_util::ReadFileToString(FilePath(name), &filestr))
+    result = v8::String::New(filestr.c_str(), filestr.size());
   return result;
 }
 

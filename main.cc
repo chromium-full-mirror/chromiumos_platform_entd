@@ -47,9 +47,6 @@ static const char *kUtility =  "utility";
 // Specify how to setup the pkcs11 interface
 static const char *kPkcs11 = "pkcs11";
 static const char *kOpenSSLConf = "openssl-conf";
-// Certificate files for mock pkcs11 certificate handler
-static const char *kCsrFile = "csr-file";
-static const char *kCertFile = "cert-file";
 
 // Root CA for HTTPS requests.
 static const char *kRootCAFile = "root-ca-file";
@@ -57,8 +54,8 @@ static const char *kRootCAFile = "root-ca-file";
 // If specified, then self-signed server certs are ok for HTTPS
 static const char *kAllowSelfSigned = "allow-self-signed";
 
-// If specified, then writing to a file is allowed
-static const char *kAllowWriteToFile = "allow-write-to-file";
+// If specified, then file operations are allowed (e.g. for testing)
+static const char *kAllowFileIO = "allow-file-io";
 
 // If specified, don't watch for signals.  This allows the process to exit
 // automatically when all events have been processed.  See the comment in
@@ -132,8 +129,6 @@ int main(int argc, char** argv) {
   std::string base_extension_path =
       cl->GetSwitchValueASCII(switches::kExtensionPath);
   std::string username = cl->GetSwitchValueASCII(switches::kUsername);
-  std::string csr_file = cl->GetSwitchValueASCII(switches::kCsrFile);
-  std::string cert_file = cl->GetSwitchValueASCII(switches::kCertFile);
   std::string root_ca_file = cl->GetSwitchValueASCII(switches::kRootCAFile);
   std::string pkcs11_mode = cl->GetSwitchValueASCII(switches::kPkcs11);
   std::string openssl_conf = cl->GetSwitchValueASCII(switches::kOpenSSLConf);
@@ -171,8 +166,8 @@ int main(int argc, char** argv) {
   if (cl->HasSwitch(switches::kAllowSelfSigned))
     entd::Http::allow_self_signed_certs = true;
 
-  if (cl->HasSwitch(switches::kAllowWriteToFile))
-    entd::Entd::allow_write_to_file = true;
+  if (cl->HasSwitch(switches::kAllowFileIO))
+    entd::Entd::allow_file_io = true;
 
   if (!root_ca_file.empty())
     entd::Http::root_ca_file = root_ca_file;
@@ -194,9 +189,6 @@ int main(int argc, char** argv) {
 
   if (!policy.empty())
     d.SetPolicyFile(policy);
-
-  if (!csr_file.empty() || !cert_file.empty())
-    d.SetCertificateFiles(csr_file, cert_file);
 
   if (!pkcs11_mode.empty())
     d.SetPkcs11Mode(pkcs11_mode);

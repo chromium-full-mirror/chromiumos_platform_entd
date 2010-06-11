@@ -390,11 +390,11 @@ function initiateCSR() {
   // Set the user pin for the PKCS#11 device
   entd.pkcs11.setUserPin(Policy.PKCS11_USER_PIN);
 
+  // Remove any existing entries matching this.label (regadless of key id)
+  entd.pkcs11.remove(this.label);
+
   // Initialize the slot token object
   var slot1 = new entd.pkcs11.SlotObject(this.label);
-
-  // Remove any existing matching entries
-  entd.pkcs11.clear(slot1, this.key_identifier);
 
   // Generate a key pair
   slot1.generateKeyPair(this.key_identifier, this.key_passphrase);
