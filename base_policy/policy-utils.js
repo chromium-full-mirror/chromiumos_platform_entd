@@ -342,7 +342,7 @@ function onInstall(firstInstall) {
 
   if (typeof this.onInstall == 'function') {
     try {
-      this.onInstall(firstOnstall);
+      this.onInstall(firstInstall);
     } catch (ex) {
       this.error('Exception running post-install callback: ' + ex);
     }
