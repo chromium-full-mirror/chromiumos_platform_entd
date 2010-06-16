@@ -114,420 +114,35 @@ class Certificate : public JSObjectWrapper<Certificate> {
   DISALLOW_COPY_AND_ASSIGN(Certificate);
 };
 
-// class Pkcs11CertificateHandlerLocalFile
-// Test Certificate handler that returns the contents of a file.
-//
-// If the csr or cert file exists, the contents of the file is returned
-// in BuildCSR or BuildCertificate; subject or content arguments are ignored.
-// If the filename is empty or the file does not exist, a string
-// containing the subject or content is returned instead.
-class Pkcs11CertificateHandlerLocalFile : public Pkcs11CertificateHandler {
+// class Pkcs11TestCertificateHandler
+// Test Certificate handler
+class Pkcs11TestCertificateHandler : public Pkcs11CertificateHandler {
  public:
-  Pkcs11CertificateHandlerLocalFile(const std::string& csr,
-                                    const std::string& cert)
-      : csr_filename_(csr), certificate_filename_(cert) {
-    if (!csr_filename_.empty())
-      LOG(INFO) << "Using local CSR file: " << csr_filename_;
-    if (!certificate_filename_.empty())
-      LOG(INFO) << "Using local Cert file: " << certificate_filename_;
-  }
-  virtual ~Pkcs11CertificateHandlerLocalFile() {}
+  Pkcs11TestCertificateHandler() {}
+  virtual ~Pkcs11TestCertificateHandler() {}
   virtual bool Initialize() { return true; }
 
   virtual bool BuildCSR(const std::string& label,
                         const std::string& subject,
                         std::string* csr) {
-    if (!csr_filename_.empty())
-      file_util::ReadFileToString(FilePath(csr_filename_), csr);
-    if (csr->empty()) {
-      // Default CSR string if not read from a file
-      *csr = std::string("<CSR subject=") + subject + " />";
-    }
+    // Use the subject as the CSR string.
+    *csr = subject;
     return true;
   }
 
   virtual bool BuildCertificate(const std::string& content,
                                 chromeos::Blob* certificate,
                                 std::string* subject) {
-    std::string subjectstr;
+    // Use the unmodified content for the certificate.
+    certificate->resize(content.length());
+    memcpy(&(certificate->front()), content.c_str(), content.length());
+    *subject = "Test";
 
-    if (!certificate_filename_.empty()) {
-      // Try reading the certificate from the filename set at construction.
-      FilePath filepath(certificate_filename_);
-      int64 filesize;
-      bool file_read = file_util::GetFileSize(filepath, &filesize);
-      if (file_read) {
-        certificate->resize(filesize);
-        char* dest = reinterpret_cast<char*>(&(certificate->front()));
-        int res = file_util::ReadFile(filepath, dest, filesize);
-        if (res == filesize) {
-          *subject = std::string("File: ") + certificate_filename_;
-        } else {
-          file_read = false;
-        }
-      }
-      if (!file_read) {
-        LOG(ERROR) << "Error reading file: " << filepath.value();
-        return false;
-      }
-    } else {
-      // Use a test string for debugging.
-      std::string certstr =
-          std::string("<Certificate content=") + content + " />";
-      certificate->resize(certstr.length());
-      memcpy(&(certificate->front()), certstr.c_str(), certstr.length());
-      *subject = "Content";
-    }
     return true;
   }
 
  private:
-  std::string csr_filename_;
-  std::string certificate_filename_;
-};
-
-// Class Pkcs11CertificateHandlerOpenSsl
-// Implements CSR generation using 'system("openssl req...")'.
-class Pkcs11CertificateHandlerOpenSsl : public Pkcs11CertificateHandler {
- public:
-  Pkcs11CertificateHandlerOpenSsl() : use_DER_format_(false) {}
-
-  virtual ~Pkcs11CertificateHandlerOpenSsl() {}
-
-  virtual bool Initialize() { return true; }
-
-  // If called, openssl will be told to convert the certificate to DER format.
-  // DER is the format that opencryptoki expects.
-  void SetOutputDER() { use_DER_format_ = true; }
-
-  virtual bool BuildCSR(const std::string& label,
-                        const std::string& subject,
-                        std::string* csr) {
-    // temporary filenames
-    FilePath temp_dir;
-    file_util::GetTempDir(&temp_dir);
-    FilePath private_key_fp = temp_dir.Append("privkey");
-    FilePath csr_fp = temp_dir.Append("csr");
-
-    // Get the passphrase for the private key from the slot handler
-    std::string passphrase = slot_handler()->GetPassphrase(label);
-
-    // *TODO: replace with calls to libopenssl to avoid system() call.
-    if (!CheckString(subject) ||
-        !CheckString(passphrase)) {
-      return false;
-    }
-    std::string cmd =
-        std::string("openssl req -new -batch -newkey rsa:2048")
-        + " -keyout " + private_key_fp.value()
-        + " -subj \"" + subject + "\""
-        + " -pubkey -out " + csr_fp.value();
-    if (!passphrase.empty())
-      cmd += " -passout pass:" + passphrase;
-    else
-      cmd += " -nodes";
-    CallSystem(cmd);
-
-    // get the results from the temporary files
-    std::string csr_output;
-    if (file_util::ReadFileToString(csr_fp, &csr_output)) {
-      csr_ = GetCertSection(csr_output,
-                            "-----BEGIN CERTIFICATE REQUEST-----",
-                            "-----END CERTIFICATE REQUEST-----");
-      public_key_ = GetCertSection(csr_output,
-                                   "-----BEGIN PUBLIC KEY-----",
-                                   "-----END PUBLIC KEY-----");
-    }
-    file_util::ReadFileToString(private_key_fp, &private_key_);
-
-    // remove temporary files
-    file_util::Delete(private_key_fp, false);
-    file_util::Delete(csr_fp, false);
-
-    // Convert the pivate key to DER format and pass it to the slot handler.
-    if (use_DER_format_ && !private_key_.empty()) {
-      chromeos::Blob key_der;
-      if (!ConvertToDER(private_key_, passphrase, &key_der))
-        return false;
-      if (!slot_handler()->AddPrivateKey(label, subject, key_der))
-        return false;
-    }
-
-    *csr = csr_;
-
-    return true;
-  }
-
-  // Include the private key (encoded with the SlotObject's passphrase)
-  // with the certificate so that it can be decoded with the passphrase.
-  virtual bool BuildCertificate(const std::string& content,
-                                chromeos::Blob* certificate,
-                                std::string* subject) {
-    FilePath temp_dir;
-    file_util::GetTempDir(&temp_dir);
-    FilePath cert_pem_fp = temp_dir.Append("cert.pem");
-    FilePath cert_der_fp = temp_dir.Append("cert.der");
-    FilePath subject_fp = temp_dir.Append("subject");
-
-    if (content.empty()) {
-      LOG(ERROR) << "BuildCertificate called with empty content";
-      return false;
-    }
-
-    // Write the content string to a temporary file
-    // to use as the certificate contents.
-    int res = file_util::WriteFile(
-        cert_pem_fp, content.c_str(), content.length());
-    if (res < 0) {
-      LOG(ERROR) << "Unable to write temporary file: " << cert_pem_fp.value();
-      return false;
-    }
-
-    {
-      // Use openssl to write the subject and (if needed)
-      // the DER version of the certificate
-      // *TODO: replace with calls to libopenssl to avoid system() call.
-      std::string cmd("openssl x509");
-      cmd += " -inform PEM -in " + cert_pem_fp.value();
-      if (use_DER_format_)
-        cmd += " -outform DER -out " + cert_der_fp.value();
-      else
-        cmd += " -noout";
-      cmd += " -subject > " + subject_fp.value();
-      bool res = CallSystem(cmd);
-
-      file_util::Delete(cert_pem_fp, false);
-      if (!res) {
-        file_util::Delete(cert_der_fp, false);
-        file_util::Delete(subject_fp, false);
-        return false;
-      }
-    }
-
-    if (use_DER_format_) {
-      // read in the DER version of the certificate.
-      int64 certlen;
-      int res = -1;
-      if (file_util::GetFileSize(cert_der_fp, &certlen)) {
-        certificate->resize(certlen);
-        char* dest = reinterpret_cast<char*>(&(certificate->front()));
-        res = file_util::ReadFile(cert_der_fp, dest, certlen);
-      }
-      file_util::Delete(cert_der_fp, false);
-      if (res != certlen) {
-        LOG(ERROR) << "Unable to read DER file: " << cert_der_fp.value();
-        file_util::Delete(subject_fp, false);
-        certificate->clear();
-        return false;
-      }
-    } else {
-      std::string certstr;
-      if (!content.empty()) {
-        // Include content provided by script.
-        certstr = content;
-      } else {
-        // Include the (test) certificate file.
-        int64 certlen;
-        int res = -1;
-        if (file_util::GetFileSize(cert_pem_fp, &certlen)) {
-          const int cert_max_length = 256*1024;
-          if (certlen < cert_max_length) {
-            char* certvec = new char[certlen];
-            res = file_util::ReadFile(cert_pem_fp, &certvec[0], certlen);
-            if (res == certlen) {
-              certstr = std::string(certvec, certlen);
-            }
-          }
-        }
-      }
-      // Append the private key.
-      certstr += private_key_;
-      // Copy to certificate.
-      certificate->resize(certstr.length());
-      memcpy(&(certificate->front()), certstr.c_str(), certstr.length());
-    }
-
-    {
-      // read in the subject
-      int64 subjectlen;
-      int res = -1;
-      if (file_util::GetFileSize(subject_fp, &subjectlen)) {
-        const int subject_max_length = 4096;
-        if (subjectlen < subject_max_length) {
-          char* subjectvec = new char[subjectlen];
-          res = file_util::ReadFile(subject_fp, &subjectvec[0], subjectlen);
-          if (res == subjectlen) {
-            const std::string headerstr("subject= ");
-            std::string subjstr(subjectvec, subjectlen);
-            std::string::size_type idx = subjstr.find(headerstr);
-            if (idx != std::string::npos)
-              subject->assign(subjstr.substr(idx + headerstr.length()));
-            else
-              subject->assign(subjstr);
-          }
-        }
-      }
-      file_util::Delete(subject_fp, false);
-      if (res != subjectlen) {
-        LOG(ERROR) << "Unable to read subject file: " << subject_fp.value();
-        return false;
-      }
-    }
-
-    return true;
-  }
-
- protected:
-  bool ConvertToDER(const std::string& key,
-                    const std::string& passphrase,
-                    chromeos::Blob* key_der) {
-    FilePath temp_dir;
-    file_util::GetTempDir(&temp_dir);
-    FilePath key_pem_fp = temp_dir.Append("key.pem");
-    FilePath key_der_fp = temp_dir.Append("key.der");
-
-    // Write the key to a temporary file
-    int res = file_util::WriteFile(key_pem_fp, key.c_str(), key.length());
-    if (res < 0) {
-      LOG(ERROR) << "Unable to write temporary file: " << key_pem_fp.value();
-      return false;
-    }
-
-    // Use openssl to write the the DER version of the key
-    // *TODO: replace with calls to libopenssl to avoid system() call.
-    if (!CheckString(passphrase)) {
-      return false;
-    }
-    std::string cmd = std::string("openssl rsa")
-        + " -inform PEM -in " + key_pem_fp.value()
-        + " -outform DER -out " + key_der_fp.value();
-    if (!passphrase.empty())
-      cmd += " -passin pass:" + passphrase;
-    CallSystem(cmd);
-
-    // read in the DER version of the key.
-    int64 keylen;
-    res = -1;
-    if (file_util::GetFileSize(key_der_fp, &keylen)) {
-      key_der->resize(keylen);
-      char* dest = reinterpret_cast<char*>(&(key_der->front()));
-      res = file_util::ReadFile(key_der_fp, dest, keylen);
-    }
-
-    file_util::Delete(key_pem_fp, false);
-    file_util::Delete(key_der_fp, false);
-
-    if (res != keylen) {
-      LOG(ERROR) << "Unable to read key DER file: " << key_der_fp.value();
-      return false;
-    }
-    return true;
-  }
-
-  // Return the substring of 's'
-  // starting with 'begin' and ending with 'end' (inclusive)
-  std::string GetCertSection(const std::string& s,
-                             const std::string& begin,
-                             const std::string& end) {
-    std::string::size_type idx0 = s.find(begin);
-    std::string::size_type idx1 = s.find(end);
-    if (idx0 == std::string::npos || idx1 == std::string::npos) {
-      LOG(WARNING) << "Unable to find section: ["
-                   << begin << ", " << end << "]";
-      LOG(WARNING) << "In:\n" << s;
-      return std::string();
-    }
-    return s.substr(idx0, (idx1 + end.length()) - idx0);
-  }
-
-  bool CheckString(const std::string& instr) {
-    for (std::string::const_iterator iter = instr.begin();
-         iter != instr.end(); ++iter) {
-      char c = *iter;
-      if (c == '"') {
-        LOG(ERROR) << "Invalid string: " << instr;
-        return false;
-      }
-    }
-    return true;
-  }
-
-  bool CallSystem(const std::string& cmd) {
-    LOG(INFO) << "Calling system(" << cmd << ");";
-    int res = system(cmd.c_str());
-    if (res != 0) {
-      LOG(WARNING) << "Error executing command: '" << cmd << "'\n"
-                   << " result = " << res;
-      return false;
-    }
-    return true;
-  }
-
-  bool use_DER_format_;
-
-  std::string csr_;
-  std::string certificate_;
-  std::string private_key_;
-  std::string public_key_;
-};
-
-// In this implementation, instead of generating a public/private key pair,
-// use engine_pkcs11 to get the keys from the TPM.
-class Pkcs11CertificateHandlerOpenSslPkcs11Engine :
-      public Pkcs11CertificateHandlerOpenSsl {
-
- public:
-  void SetEngineConfigFile(const std::string& filename) {
-    engine_config_file_ = filename;
-  }
-
-  virtual bool BuildCSR(const std::string& label,
-                        const std::string& subject,
-                        std::string* csr) {
-    FilePath temp_dir;
-    file_util::GetTempDir(&temp_dir);
-    FilePath csr_fp = temp_dir.Append("csr");
-
-    csr_.clear();
-
-    if (engine_config_file_.empty()) {
-      LOG(ERROR) << "BuildCSR called with no engine config file specified.";
-      return false;
-    }
-
-    // *TODO: replace with calls to libopenssl to avoid system() call.
-    std::string keyid = slot_handler()->GetKeyIdentifier(label);
-    std::stringstream cmd;
-    if (!CheckString(subject)) {
-      return false;
-    }
-    cmd << "openssl req -new -batch"
-        << " -config " << engine_config_file_ << " -engine pkcs11"
-        << " -key " << keyid << " -keyform engine"
-        << " -subj \"" << subject << "\""
-        << " -out " << csr_fp.value();
-    CallSystem(cmd.str());
-
-    bool res = file_util::ReadFileToString(csr_fp, &csr_);
-    if (!res) {
-      LOG(ERROR) << "Unable to read CSR file: " << csr_fp.value();
-      return false;
-    }
-
-    // remove temporary files
-    file_util::Delete(csr_fp, false);
-
-    *csr = csr_;
-
-    return true;
-  }
-
-  // BuildCertificate() is the same as in the parent class,
-  // but note that private_key_ will be empty, so nothing will be
-  // appended to the certificate contents (as desired).
-
- private:
-  std::string engine_config_file_;
+  DISALLOW_COPY_AND_ASSIGN(Pkcs11TestCertificateHandler);
 };
 
 // Class Pkcs11CertificateHandlerLibOpenSsl
@@ -895,6 +510,8 @@ class Pkcs11CertificateHandlerLibOpenSsl : public Pkcs11CertificateHandler {
   std::string certificate_;
   std::string public_key_;
   chromeos::Blob private_key_der_;
+
+  DISALLOW_COPY_AND_ASSIGN(Pkcs11CertificateHandlerLibOpenSsl);
 };
 
 // Use 2048 bits for the key length, and an exponent of 0x10001.
@@ -1066,6 +683,7 @@ class Pkcs11SlotHandlerInMemory : public Pkcs11SlotHandler {
   }
 
   ObjectMap objects_;
+
   DISALLOW_COPY_AND_ASSIGN(Pkcs11SlotHandlerInMemory);
 };
 
@@ -1767,12 +1385,22 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
   DISALLOW_COPY_AND_ASSIGN(Pkcs11SlotHandlerOpenCryptoki);
 };
 
-// In "GLaptop mode" we generate the key pair using openssl, and call
-// AddPrivateKey() instead, so GenerateKeyPair() needs to be a no-op.
-class Pkcs11SlotHandlerGLaptop : public Pkcs11SlotHandlerOpenCryptoki {
+// Pkcs11CertificateHandlerLibOpenSsl generates its own key pair,
+// which is what we would prefer to use. However, engine_pkcs11
+// is not currently working correctly, and there is no known
+// implementation that can generate a CSR using the TPM generated key pair.
+// (The current implementaiton of Pkcs11CertificateHandlerLibOpenSsl calls
+// AddPrivateKey() instead).
+// Rather than eliminate the poentially useful (and non-trivial) code in
+// Pkcs11SlotHandlerOpenCryptoki, override the class with a GenerateKeyPair()
+// method that just sets the passphrase and ensures that the object exists.
+class Pkcs11SlotHandlerOpenCryptokiNoKeyGen :
+      public Pkcs11SlotHandlerOpenCryptoki {
  public:
-  Pkcs11SlotHandlerGLaptop() {}
+  Pkcs11SlotHandlerOpenCryptokiNoKeyGen() {}
 
+  // Don't actually generate a key pair; rely on AddPrivateKey() getting
+  // called instead.
   virtual bool GenerateKeyPair(const std::string& label,
                                const std::string& passphrase) {
     Object* obj = GetObject(label);
@@ -1785,7 +1413,7 @@ class Pkcs11SlotHandlerGLaptop : public Pkcs11SlotHandlerOpenCryptoki {
   };
 
  private:
-  DISALLOW_COPY_AND_ASSIGN(Pkcs11SlotHandlerGLaptop);
+  DISALLOW_COPY_AND_ASSIGN(Pkcs11SlotHandlerOpenCryptokiNoKeyGen);
 };
 
 // Class CSR
@@ -2081,26 +1709,8 @@ void Pkcs11::SetupHandlers() {
   Certificate::InitCertificateHandler(certificate_handler());
 }
 
-// This always gets called first by InitializeXXX()
-// so that obj() is available for other initialization
-// functions (e.g. ReadObjectsFromSlot())
 bool Pkcs11::Initialize() {
-  if (slot_handler_.get() == NULL) {
-    // Default slot handler
-    slot_handler_.reset(new Pkcs11SlotHandlerInMemory());
-    if (!slot_handler_->Initialize())
-      return false;
-  }
-  if (certificate_handler_.get() == NULL) {
-    // Default certificate handler.
-    certificate_handler_.reset(new Pkcs11CertificateHandlerLocalFile("", ""));
-    if (!certificate_handler_->Initialize())
-      return false;
-  }
-
-  SetupHandlers();
-
-  // Initialize the pkcs11 template specially
+  // Initialize the SlotObject template here so that we can embed 'this'.
   v8::Handle<v8::FunctionTemplate> t = GetTemplate();
   v8::Handle<v8::ObjectTemplate> t_obj = t->InstanceTemplate();
   t_obj->Set(v8::String::NewSymbol("SlotObject"),
@@ -2109,48 +1719,28 @@ bool Pkcs11::Initialize() {
              v8::ReadOnly);
 
   // Build and initialize the V8 object.
-  return JSObjectWrapper<Pkcs11>::Initialize();
-}
-
-bool Pkcs11::InitializeOpenCryptoki(const std::string& engine) {
-  LOG(INFO) << "Initializing pkcs11 with opencryptoki and engine:" << engine;
-
-  if (!Initialize())
+  if (!JSObjectWrapper<Pkcs11>::Initialize())
     return false;
 
-  Pkcs11SlotHandlerOpenCryptoki* slot_handler =
-      new Pkcs11SlotHandlerOpenCryptoki();
-  slot_handler_.reset(slot_handler);
-  if (!slot_handler->Initialize())
-    return false;
-  slot_handler->ReadObjectsFromSlot(this);
-
-  Pkcs11CertificateHandlerOpenSslPkcs11Engine* cert_handler =
-      new Pkcs11CertificateHandlerOpenSslPkcs11Engine();
-  if (!cert_handler->Initialize())
-    return false;
-  cert_handler->SetEngineConfigFile(engine);
-  cert_handler->SetOutputDER();
-  certificate_handler_.reset(cert_handler);
-
+  // Default handlers
+  if (certificate_handler_.get() == NULL) {
+    certificate_handler_.reset(new Pkcs11TestCertificateHandler());
+    if (!certificate_handler_->Initialize())
+      return false;
+  }
+  if (slot_handler_.get() == NULL) {
+    slot_handler_.reset(new Pkcs11SlotHandlerInMemory());
+    if (!slot_handler_->Initialize())
+      return false;
+  }
   SetupHandlers();
 
-  return true;;
+  return true;
 }
 
-bool Pkcs11::InitializeGLaptop() {
-  LOG(INFO) << "Initializing pkcs11 with opencryptoki and openssl:libcrypto.";
-
-  if (!Initialize())
-    return false;
-
-  Pkcs11SlotHandlerGLaptop* slot_handler =
-      new Pkcs11SlotHandlerGLaptop();
-  slot_handler_.reset(slot_handler);
-  if (!slot_handler->Initialize())
-    return false;
-  slot_handler->ReadObjectsFromSlot(this);
-
+// Used for testing the OpenSSL functionality without requiring
+// opencryptoki to be configured in the OS.
+bool Pkcs11::SetOpenSSLHandlers() {
   Pkcs11CertificateHandlerLibOpenSsl* cert_handler =
       new Pkcs11CertificateHandlerLibOpenSsl();
   if (!cert_handler->Initialize())
@@ -2162,40 +1752,21 @@ bool Pkcs11::InitializeGLaptop() {
   return true;
 }
 
-bool Pkcs11::InitializeOpenSSL() {
-  LOG(INFO) << "Initializing pkcs11 with openssl.";
-
-  if (!Initialize())
-    return false;
-
-  slot_handler_.reset(new Pkcs11SlotHandlerInMemory());
-  if (!slot_handler_->Initialize())
-    return false;
-
-  Pkcs11CertificateHandlerOpenSsl* cert_handler =
-      new Pkcs11CertificateHandlerOpenSsl();
+// Requires opencryptoki to be configured properly in the OS,
+// otherwise C_Initialize() will fail.
+bool Pkcs11::SetOpenCryptokiHandlers() {
+  Pkcs11CertificateHandlerLibOpenSsl* cert_handler =
+      new Pkcs11CertificateHandlerLibOpenSsl();
   if (!cert_handler->Initialize())
     return false;
   certificate_handler_.reset(cert_handler);
 
-  SetupHandlers();
-
-  return true;
-}
-
-bool Pkcs11::InitializeLocalFiles(const std::string& csr,
-                                  const std::string& cert) {
-  if (!Initialize())
+  Pkcs11SlotHandlerOpenCryptokiNoKeyGen* slot_handler =
+      new Pkcs11SlotHandlerOpenCryptokiNoKeyGen();
+  slot_handler_.reset(slot_handler);
+  if (!slot_handler->Initialize())
     return false;
-
-  slot_handler_.reset(new Pkcs11SlotHandlerInMemory());
-  if (!slot_handler_->Initialize())
-    return false;
-
-  certificate_handler_.reset(
-      new Pkcs11CertificateHandlerLocalFile(csr, cert));
-  if (!certificate_handler_->Initialize())
-    return false;
+  slot_handler->ReadObjectsFromSlot(this);
 
   SetupHandlers();
 

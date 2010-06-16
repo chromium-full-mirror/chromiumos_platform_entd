@@ -396,23 +396,18 @@ v8::Handle<v8::Object> Entd::ConstructEntd() {
             callback_server_->obj(), v8::ReadOnly);
 
   // Build the pkcs11 object
-  bool res = false;
   pkcs11_.reset(new Pkcs11(NULL, NULL));
-  if (pkcs11_mode_ == "opencryptoki") {
-    res = pkcs11_->InitializeOpenCryptoki(pkcs11_config_filename_);
-  } else if (pkcs11_mode_ == "glaptop") {
-    res = pkcs11_->InitializeGLaptop();
-  } else if (pkcs11_mode_ == "openssl") {
-    res = pkcs11_->InitializeOpenSSL();
-  } else if (!pkcs11_mode_.empty()) {
-    LOG(ERROR) << "Unrecognized pkcs11 mode: " << pkcs11_mode_;
-  } else {
-    res = pkcs11_->Initialize();
+  bool res = pkcs11_->Initialize();
+  if (pkcs11_mode_ == "openssl") {
+    res = res && pkcs11_->SetOpenSSLHandlers();
+  } else if (pkcs11_mode_ != "test") {
+    res = res && pkcs11_->SetOpenCryptokiHandlers();
   }
   if (!res) {
     LOG(ERROR) << "Error initializing entd.pkcs11";
     exit(1);
   }
+
   entd->Set(v8::String::New("pkcs11"),
             pkcs11_->obj(), v8::ReadOnly);
 

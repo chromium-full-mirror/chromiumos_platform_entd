@@ -9,6 +9,7 @@
 
 USERNAME="user@google.com"
 ALLOW_DIRTY_EXIT=1
+PKCS11_TEST=1
 grep "Chromium OS" /etc/lsb-release
 if [ $? == 0 ]; then
   CHROMEOS=1
@@ -45,6 +46,13 @@ function greptest {
     name=$args
   fi
 
+  local expected_result="$4"
+
+  if [ -z "$expected_result" ]; then
+    expected_result=0
+  fi
+
+
   if [ ${args:0:2} != "--" ]; then
     # allow callers to just pass the name of the js file if that's all they need
     args="--policy=test_data/$args"
@@ -55,12 +63,17 @@ function greptest {
     cmd="$cmd --allow-dirty-exit"
   fi
 
-  local out=$($cmd 2>&1)
+  if [ ! -z "$PKCS11_TEST" ]; then
+    cmd="$cmd --pkcs11=test"
+  fi
+
+  local out
+  out=$($cmd 2>&1)
   local code=$?
 
   TESTS=$(($TESTS +1))
 
-  if [ $code != 0 ]; then
+  if [ $code != $expected_result ]; then
     logfail "$name: exited with $code"
     return
   fi
@@ -84,9 +97,9 @@ function greptest {
 
 # Basic tests.
 greptest "hello-world.js" 'hello world'
-greptest "bad-onload.js" 'throw "expected exception"'
+greptest "bad-onload.js" 'throw "expected exception"' '' 1
 greptest "print-username.js" "username: $USERNAME"
-greptest "throw-exception.js" 'throw "goodbye world"'
+greptest "throw-exception.js" 'throw "goodbye world"' '' 1
 greptest "syslog.js" "entd.syslog.error"
 greptest "simple-hostname.js" "LOOKS OK"
 greptest "simple-onunload.js" "LOOKS OK"
@@ -103,41 +116,45 @@ greptest "--extension-path=test_data/Extensions" '{"foo":1,"bar":2}'
 greptest "http-good.js" "HTTP COMPLETE"
 greptest "http-badhost.js" "HTTP ERROR: Couldn't resolve"
 greptest "http-badport.js" "LOOKS OK"
-greptest "http-evilhost.js" "Invalid hostname"
-greptest "http-badrequest.js" "First argument must be a Request object"
+greptest "http-evilhost.js" "Invalid hostname" '' 1
+greptest "http-badrequest.js" "First argument must be a Request object" '' 1
 greptest "http-redirect.js" "HTTP COMPLETE"
 
 # Pkcs11 tests.
 greptest 'pkcs11.js '\
 '--allow-file-io' \
 '{"slot1":{"label":"slot1","keyIdentifier":"key1",'\
-'"certificate":{"subject":"Content"}},'\
+'"certificate":{"subject":"Test"}},'\
 '"slot2":{"label":"slot2","keyIdentifier":"key2",'\
-'"certificate":{"subject":"Content"}}}' \
+'"certificate":{"subject":"Test"}}}' \
 "pkcs11.js"
 greptest 'pkcs11-cert.js '\
 '--allow-file-io' \
-'{"slot1":{"label":"slot1","certificate":{"subject":"Content"}}}' \
+'{"slot1":{"label":"slot1","certificate":{"subject":"Test"}}}' \
 "pkcs11-cert.js"
+greptest "pkcs11-remove.js" "Slot1: undefined"
+
+PKCS11_TEST=
 greptest 'pkcs11-openssl.js '\
 '--pkcs11=openssl --allow-file-io' \
 'Subject:/C=US/ST=California/L=Mountain View/O=Google Inc/OU=ChromeOS' \
 "pkcs11-openssl.js"
-greptest "pkcs11-remove.js" "Slot1: undefined"
 
 # Pkcs11 opencryptoki tests (requires a TPM (or emulator), so chromeos only)
 if [ "$CHROMEOS" == 1 ]; then
   greptest 'pkcs11-opencryptoki.js '\
-'--pkcs11=glaptop --allow-file-io' \
+'--allow-file-io' \
 '"slot1":{"label":"slot1","keyIdentifier":"1234",'\
 '"certificate":{'\
 '"subject":"/C=US/ST=California/L=Mountain View/O=Google Inc/OU=ChromeOS' \
 "pkcs11-opencryptoki.js"
   greptest 'pkcs11-opencryptoki-delete.js '\
-'--pkcs11=glaptop --allow-file-io' \
+'--allow-file-io' \
 'Slots.slot1: undefined' \
 "pkcs11-opencryptoki-delete.js"
 fi
+PKCS11_TEST=1
+
 # Slightly longer running tests.
 greptest "settimeout.js" "string timeout function timeout"
 greptest "cleartimeout.js" "starting timeouts function timeout"

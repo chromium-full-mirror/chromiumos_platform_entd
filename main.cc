@@ -46,7 +46,6 @@ static const char *kUtility =  "utility";
 
 // Specify how to setup the pkcs11 interface
 static const char *kPkcs11 = "pkcs11";
-static const char *kOpenSSLConf = "openssl-conf";
 
 // Root CA for HTTPS requests.
 static const char *kRootCAFile = "root-ca-file";
@@ -131,7 +130,6 @@ int main(int argc, char** argv) {
   std::string username = cl->GetSwitchValueASCII(switches::kUsername);
   std::string root_ca_file = cl->GetSwitchValueASCII(switches::kRootCAFile);
   std::string pkcs11_mode = cl->GetSwitchValueASCII(switches::kPkcs11);
-  std::string openssl_conf = cl->GetSwitchValueASCII(switches::kOpenSSLConf);
 
   // Get file paths from a valid policy extension if it exists
   std::string extension_path;
@@ -192,9 +190,6 @@ int main(int argc, char** argv) {
 
   if (!pkcs11_mode.empty())
     d.SetPkcs11Mode(pkcs11_mode);
-
-  if (!openssl_conf.empty())
-    d.SetPkcs11OpenSSLConfig(openssl_conf);
 
   uint32_t rv = d.Run();
   LOG(INFO) << "Exiting entd with code: " << rv;

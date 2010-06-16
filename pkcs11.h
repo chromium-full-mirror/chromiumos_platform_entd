@@ -84,28 +84,25 @@ class Pkcs11 : public JSObjectWrapper<Pkcs11> {
  public:
   // The constructor takes two handlers:
   // * cert_handler builds CSRs and certificates.
+  //   - builds CSRs
+  //   - may generate a public/private key pair
+  //   - parses Certificates and extracts the subject
   // * slot_handler handles the interface with a pkcs11 device:
-  //   - generates public/private key pairs
-  //   - adds certificates
-  //   - retrieves a list of slot labels and the contents of a named slot.
+  //   - may generate public/private key pairs
+  //   - stores key pairs and certificates
+  //   - retrieves a list of existing token objects in a slot
   //
-  // If cert_handler is NULL, a Pkcs11CertificateHandlerLocalFile is built,
-  // with empty filenames (see below).
-  // If slot_handler is NULL, a Pkcs11SlotHandlerInMemory is built
-  // (see code).
+  // If cert_handler or slot_handler NULL,
+  // the class is initialized with the default handler (see code).
   Pkcs11(Pkcs11CertificateHandler* cert_handler,
          Pkcs11SlotHandler* slot_handler);
   virtual ~Pkcs11();
   virtual bool Initialize();
-  // Call this *instead of* Initialize() to use opencryptoki with openssl
-  bool InitializeOpenCryptoki(const std::string& engine);
-  // Call this *instead of* Initialize() to use openssl to generate keys
-  // and to store the private key in the tpm (like glaptop does)
-  bool InitializeGLaptop();
-  // Call this *instead of* Initialize() to use openssl without opencryptoki
-  bool InitializeOpenSSL();
-  // Call this *instead of* Initialize() to use local files
-  bool InitializeLocalFiles(const std::string& csr, const std::string& cert);
+  // Set the Certificate handler to use openssl to generate CSRs
+  bool SetOpenSSLHandlers();
+  // Set the Slot handler to use opencryptoki,
+  // and the Certificate handler to use openssl
+  bool SetOpenCryptokiHandlers();
 
   // Adds slot_object to "pkcs11.slots"
   bool AddJSSlotObject(const SlotObject* slot_object);
