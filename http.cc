@@ -38,6 +38,10 @@
 
 namespace entd {
 
+// Curl uses 'CURL*' values as handles; typedef for better readability.
+// (Note: CURL is typedefed to void, so -> access is already invalid).
+typedef CURL* CurlHandle;
+
 static const std::string kHttpsScheme = "https://";
 
 // Default starting ephemeral port on Linux.
@@ -67,18 +71,20 @@ class HttpRequest : public JSObjectWrapper<HttpRequest> {
   // Interface for HTTP (HttpMessengerInterface class)
   void SetUrl(const std::string& url) { url_ = url; }
 
-  std::string GetUrl() { return url_; }
+  std::string GetUrl() const { return url_; }
+
   void AppendBuffer(const char* data, size_t bytes);
   void AppendHeader(const std::string& header);
+
   void CallComplete(int http_code);
   void CallTimeout();
   void CallError(const std::string& errdesc);
 
  private:
-  // Member Variables
-  std::string url_;  // actual url the request was sent to, including params
-  std::vector<char> buffer_;  // input buffer to hold request results
-  utils::StringList headers_;
+  // Variables set by the curl interface.
+  std::string url_;  // actual url the request is sent to, including params.
+  utils::StringList headers_;  // headers returned by the curl request
+  std::vector<char> buffer_;  // buffer to hold request results
 
   DISALLOW_COPY_AND_ASSIGN(HttpRequest);
 };
@@ -136,7 +142,7 @@ utils::StringList HttpRequest::GetStringList(const std::string& name,
 }
 
 std::string HttpRequest::GetUrlEncodedParams() {
-  // Set parameter string
+  // Set params string
   utils::StringList params = GetStringList("params", "=");
 
   if (params.size()) {
@@ -157,23 +163,23 @@ std::string HttpRequest::GetUrlEncodedParams() {
 }
 
 // Set the following JS properties and call 'onComplete' if defined
-// response.url     = the actual url the request was sent to (including
-//                    parameters)
+// response.url     = the actual url the request was sent to (includes params)
 // response.code    = the HTTP code (e.g. 200) as an Integer
 // response.content = the body of request as a single String
 // response.headers = the headers as an Array of Strings
 void HttpRequest::CallComplete(int http_code) {
   v8::Local<v8::Object> response = v8::Object::New();
 
+  const std::string& url = GetUrl();
   response->Set(v8::String::NewSymbol("url"),
-                v8::String::New(&url_[0], url_.length()));
+                v8::String::New(url.c_str(), url.length()));
   response->Set(v8::String::NewSymbol("code"),
                 v8::Integer::New(http_code));
   response->Set(v8::String::NewSymbol("content"),
                 v8::String::New(&buffer_[0], buffer_.size()));
 
   v8::Local<v8::Array> jsheaders = v8::Array::New(headers_.size());
-  utils::StringList::iterator iter = headers_.begin();
+  utils::StringList::const_iterator iter = headers_.begin();
 
   for (int i=0; iter != headers_.end(); ++iter, ++i) {
     const std::string& h = *iter;
@@ -229,15 +235,20 @@ class HttpCurlEasy : public HttpMessengerInterface
   virtual ~HttpCurlEasy() {}
   bool Initialize();
   virtual int Update();
-  virtual bool HttpGet(HttpRequest* request);
-  virtual bool HttpPost(HttpRequest* request);
+  // Set up 'request' from 'url' for the specified operation.
+  virtual bool HttpGet(const std::string& url, HttpRequest* request);
+  virtual bool HttpPost(const std::string& url, HttpRequest* request);
 
  private:
-  static CURL* CurlInit();
-  static void CurlCleanup(CURL* handle);
-  static bool CurlSetupMultipartPost(HttpRequest* request, CURL* handle);
-  static bool CurlSetupRequest(HttpRequest* request, CURL* handle);
-  static bool CurlSendRequest(HttpRequest* request, CURL* handle);
+  // Setup curl
+  static CurlHandle CurlInit();
+  static void CurlCleanup(CurlHandle handle);
+  // Setup requests (modifies request)
+  static bool CurlSetupMultipartPost(CurlHandle handle, HttpRequest* request);
+  static bool CurlSetupRequest(CurlHandle handle, HttpRequest* request);
+  // Send a request (may indirectly modify request)
+  static bool CurlSendRequest(CurlHandle handle, HttpRequest* request);
+  // Curl callbacks
   static size_t HttpWriteCallback(void *ptr, size_t size,
                                   size_t count, void *data);
   static size_t HttpHeaderCallback(void *ptr, size_t size,
@@ -249,9 +260,10 @@ class HttpCurlEasy : public HttpMessengerInterface
   class CurlRequest
   {
    public:
-    CurlRequest(HttpRequest* req, CURL* h) : request_(req), handle_(h) {}
+    CurlRequest(CurlHandle handle, HttpRequest* req)
+        : handle_(handle), request_(req) {}
+    CurlHandle handle_;
     HttpRequest* request_;
-    CURL* handle_;
   };
 
   typedef std::list<CurlRequest> RequestList;
@@ -263,7 +275,7 @@ class HttpCurlEasy : public HttpMessengerInterface
 bool HttpCurlEasy::s_curl_initialized_ = false;
 const int HttpCurlEasy::s_timeout_secs_(5);
 
-// HttpCurlEasy Functions
+// HttpCurlEasy Public Functions
 
 bool HttpCurlEasy::Initialize() {
   // Only call curl_global_init() once
@@ -286,16 +298,81 @@ int HttpCurlEasy::Update() {
        iter != requests_.end(); ++iter) {
     CurlRequest& curlreq = *iter;
     HttpRequest* request = curlreq.request_;
-    CURL* handle = curlreq.handle_;
-    CurlSendRequest(request, handle);
+    CurlHandle handle = curlreq.handle_;
+    CurlSendRequest(handle, request);
   }
 
   requests_.clear();
   return 0;
 }
 
-CURL* HttpCurlEasy::CurlInit() {
-  CURL* handle = curl_easy_init();
+// Sets up the curl GET request and adds it to the request list.
+// The request will get sent the next time Update() is called.
+bool HttpCurlEasy::HttpGet(const std::string& in_url, HttpRequest* request) {
+  if (!request)
+    return false;
+
+  CurlHandle handle = CurlInit();
+  if (!handle)
+    return false;
+
+  // Set params string
+  std::string params = request->GetUrlEncodedParams();
+  std::string url = in_url;
+  if (params.length()) {
+    // Append params to the url string
+    if (url.find('?') == std::string::npos) {
+      url.append("?");
+    } else {
+      url.append("&");
+    }
+    url += params;
+  }
+
+  request->SetUrl(url);
+
+  if (!CurlSetupRequest(handle, request))
+    return false;
+
+  requests_.push_back(CurlRequest(handle, request));
+
+  return true;
+}
+
+// Sets up the curl POST request and adds it to the request list.
+// The request will get sent the next time Update() is called.
+bool HttpCurlEasy::HttpPost(const std::string& in_url, HttpRequest* request) {
+  if (!request)
+    return false;
+
+  CurlHandle handle = CurlInit();
+  if (!handle)
+    return false;
+
+  std::string params = request->GetUrlEncodedParams();
+  if (params.length() > 0) {
+    CURLcode code = curl_easy_setopt(handle, CURLOPT_COPYPOSTFIELDS,
+                                     params.c_str());
+    if (code != CURLE_OK) {
+      utils::ThrowV8Exception(std::string("Error setting curl form data."));
+      return false;
+    }
+  }
+
+  request->SetUrl(in_url);
+
+  if (!CurlSetupRequest(handle, request))
+    return false;
+
+  requests_.push_back(CurlRequest(handle, request));
+
+  return true;
+}
+
+// HttpCurlEasy Private Functions
+
+CurlHandle HttpCurlEasy::CurlInit() {
+  CurlHandle handle = curl_easy_init();
 
   if (handle == NULL) {
     LOG(ERROR) << "Error calling curl_easy_init.";
@@ -305,17 +382,18 @@ CURL* HttpCurlEasy::CurlInit() {
   return handle;
 }
 
-void HttpCurlEasy::CurlCleanup(CURL* handle) {
-  if (handle)
+void HttpCurlEasy::CurlCleanup(CurlHandle handle) {
+  if (handle != NULL)
       curl_easy_cleanup(handle);
 }
 
 // Prepares a curl request to be sent, but does not issue it
-bool HttpCurlEasy::CurlSetupRequest(HttpRequest* request, CURL* handle) {
+bool HttpCurlEasy::CurlSetupRequest(CurlHandle handle, HttpRequest* request) {
   CURLcode code;
 
   // Set the url, callback, timeout, and other options
-  code = curl_easy_setopt(handle, CURLOPT_URL, request->GetUrl().c_str());
+  const std::string& url = request->GetUrl();
+  code = curl_easy_setopt(handle, CURLOPT_URL, url.c_str());
   if (code == CURLE_OK)
     code = curl_easy_setopt(handle, CURLOPT_TIMEOUT, s_timeout_secs_);
   if (code == CURLE_OK)
@@ -384,7 +462,8 @@ bool HttpCurlEasy::CurlSetupRequest(HttpRequest* request, CURL* handle) {
 // Use curl to send the request.
 // BLOCKING! curl_easy_perform() blocks until a response is received
 // or the request times out.
-bool HttpCurlEasy::CurlSendRequest(HttpRequest* request, CURL* handle) {
+bool HttpCurlEasy::CurlSendRequest(CurlHandle handle,
+                                   HttpRequest* request) {
   bool res = true;
   CURLcode code = curl_easy_perform(handle);
   long http_code = 0;
@@ -423,41 +502,11 @@ bool HttpCurlEasy::CurlSendRequest(HttpRequest* request, CURL* handle) {
   return res;
 }
 
-// Sets up the curl GET request and adds it to the request list.
-// The request will get sent the next time Update() is called.
-bool HttpCurlEasy::HttpGet(HttpRequest* request) {
-  if (!request)
-    return false;
-
-  CURL* handle = CurlInit();
-  if (!handle)
-    return false;
-
-  // Set parameter string
-  std::string params = request->GetUrlEncodedParams();
-  if (params.size()) {
-    // Append parameters to the url string
-    std::string url = request->GetUrl();
-    if (url.find('?') == std::string::npos) {
-      url.append("?");
-    } else {
-      url.append("&");
-    }
-
-    request->SetUrl(url + params);
-  }
-
-  if (!CurlSetupRequest(request, handle))
-    return false;
-
-  requests_.push_back(CurlRequest(request, handle));
-  return true;
-}
-
 // TODO(rginda): This should be hooked back up and retested so that policies
 // can optionally perform multipart posts.  It's dead code at the moment.
 // static
-bool HttpCurlEasy::CurlSetupMultipartPost(HttpRequest* request, CURL* handle) {
+bool HttpCurlEasy::CurlSetupMultipartPost(CurlHandle handle,
+                                          HttpRequest* request) {
   // Set form data
   utils::StringList params = request->GetStringList("params", "=");
   struct curl_httppost *formpost = NULL;
@@ -478,33 +527,6 @@ bool HttpCurlEasy::CurlSetupMultipartPost(HttpRequest* request, CURL* handle) {
 
   CURLcode code = curl_easy_setopt(handle, CURLOPT_HTTPPOST, formpost);
   return (code == CURLE_OK);
-}
-
-// Sets up the curl POST request and adds it to the request list.
-// The request will get sent the next time Update() is called.
-bool HttpCurlEasy::HttpPost(HttpRequest* request) {
-  if (!request)
-    return false;
-
-  CURL* handle = CurlInit();
-  if (!handle)
-    return false;
-
-  std::string paramstr = request->GetUrlEncodedParams();
-  if (paramstr.length() > 0) {
-    CURLcode code = curl_easy_setopt(handle, CURLOPT_COPYPOSTFIELDS,
-                                     paramstr.c_str());
-    if (code != CURLE_OK) {
-      utils::ThrowV8Exception(std::string("Error setting curl form data."));
-      return false;
-    }
-  }
-
-  if (!CurlSetupRequest(request, handle))
-    return false;
-
-  requests_.push_back(CurlRequest(request, handle));
-  return true;
 }
 
 // HttpCurlEasy Static Functions
@@ -589,46 +611,43 @@ void Http::SetTemplateBindings(v8::Handle<v8::ObjectTemplate> template_object) {
                        v8::ReadOnly);
 }
 
-bool Http::HttpGet(HttpRequest* request) {
+bool Http::HttpGet(const std::string& url, HttpRequest* request) {
   if (!timeout_)
     timeout_ = entd_->SetNativeTimeout(dispatch_OnNativeTimeout, this, 0);
 
-  if (!messenger_->HttpGet(request))
+  if (!messenger_->HttpGet(url, request))
     return false;
 
-  request->obj()->Set(v8::String::NewSymbol("url"),
-                      v8::String::New(request->GetUrl().c_str()));
   return true;
 }
 
-bool Http::HttpPost(HttpRequest* request) {
+bool Http::HttpPost(const std::string& url, HttpRequest* request) {
   if (!timeout_)
     timeout_ = entd_->SetNativeTimeout(dispatch_OnNativeTimeout, this, 0);
 
-  if (!messenger_->HttpPost(request))
+  if (!messenger_->HttpPost(url, request))
     return false;
 
-  request->obj()->Set(v8::String::NewSymbol("url"),
-                      v8::String::New(request->GetUrl().c_str()));
   return true;
 }
 
 // Local dispatch fucntions for Http template bindings.
 
 static bool CheckRequestArgs(const v8::Arguments& args,
-                             Http*& http, HttpRequest*& request) {
-  http = Http::Unwrap(args.This());
+                             Http** httpp, HttpRequest** requestp,
+                             std::string* urlp) {
+  Http* http = Http::Unwrap(args.This());
   if (!http) {
     utils::ThrowV8Exception("Method called on incorrect object type.");
     return false;
   }
 
   if (args.Length() < 1) {
-    utils::ThrowV8Exception("Not enough parameters.");
+    utils::ThrowV8Exception("Not enough arguments.");
     return false;
   }
 
-  request = HttpRequest::GetFromArg(args, 0);
+  HttpRequest* request = HttpRequest::GetFromArg(args, 0);
   if (!request) {
     utils::ThrowV8Exception("First argument must be a Request object.");
     return false;
@@ -660,31 +679,51 @@ static bool CheckRequestArgs(const v8::Arguments& args,
     hostname.append(":" + port_str);
   }
 
-  request->SetUrl(kHttpsScheme + hostname + path);
+  *httpp = http;
+  *requestp = request;
+  *urlp = kHttpsScheme + hostname + path;
 
   return true;
 }
 
 static v8::Handle<v8::Value> dispatch_HttpGet(const v8::Arguments& args) {
-  Http* http;
-  HttpRequest* request;
-  bool res = false;
+  Http* http = NULL;
+  HttpRequest* request = NULL;
+  std::string url;
 
-  if (CheckRequestArgs(args, http, request))
-    res = http->HttpGet(request);
+  // Gets http, request, and url from args
+  if (!CheckRequestArgs(args, &http, &request, &url))
+    return v8::False();
 
-  return res ? v8::True() : v8::False();
+  // Sets up request from url
+  if (!http->HttpGet(url, request))
+    return v8::False();
+
+  // Set This().url to the url the request is being sent to
+  request->obj()->Set(v8::String::NewSymbol("url"),
+                      v8::String::New(request->GetUrl().c_str()));
+
+  return v8::True();
 }
 
 static v8::Handle<v8::Value> dispatch_HttpPost(const v8::Arguments& args) {
-  Http* http;
-  HttpRequest* request;
-  bool res = false;
+  Http* http = NULL;
+  HttpRequest* request = NULL;
+  std::string url;
 
-  if (CheckRequestArgs(args, http, request))
-    res = http->HttpPost(request);
+  // Gets http, request, and url from args
+  if (!CheckRequestArgs(args, &http, &request, &url))
+    return v8::False();
 
-  return res ? v8::True() : v8::False();
+  // Sets up request from url
+  if (!http->HttpPost(url, request))
+    return v8::False();
+
+  // Set This().url to the url the request is being sent to
+  request->obj()->Set(v8::String::NewSymbol("url"),
+                      v8::String::New(request->GetUrl().c_str()));
+
+  return v8::True();
 }
 
 }  // namespace entd

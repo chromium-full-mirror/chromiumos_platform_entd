@@ -21,17 +21,17 @@ class NativeTimeout;
 class HttpRequest;
 
 // Interface Class for sending actual HTTP requests
-//  The default implementation uses libcurl.
-//  The interface allows this to be stubbed out for testing or replaced.
+// The default implementation uses libcurl.
+// The interface allows this to be replaced or stubbed out for testing.
 class HttpMessengerInterface {
  public:
   HttpMessengerInterface() {};
   virtual ~HttpMessengerInterface() {};
   virtual int Update() = 0;
-  // Send a Request using HTTP.
-  // If post==true, use HTTP POST instead of HTTP GET
-  virtual bool HttpGet(HttpRequest* request) = 0;
-  virtual bool HttpPost(HttpRequest* request) = 0;
+  // Send a Request using HTTP to 'url',
+  // and set up 'request' to receive the results.
+  virtual bool HttpGet(const std::string& url, HttpRequest* request) = 0;
+  virtual bool HttpPost(const std::string& url, HttpRequest* request) = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(HttpMessengerInterface);
@@ -40,18 +40,15 @@ class HttpMessengerInterface {
 // Defines an interface between V8 and a HttpMessengerInterface
 // Example Usage:
 //   jshttp_ = new Http(NULL);  // NULL = use default (Curl) Messenger
-//   bool res = jshttp_->Initialize();
-//   if (res)
-//     my_v8_object->Set(String::New("http"), jshttp_->obj());
+//   if (jshttp_->Initialize())
+//     my_v8_object->Set(String::NewSymbol("http"), jshttp_->obj());
 class Http : public JSObjectWrapper<Http> {
  public:
+  // 'entd' and 'messenger' are non-const interfaces.
   Http(Entd* entd, HttpMessengerInterface* messenger);
   virtual ~Http();
   virtual bool Initialize();
   static const char* GetClassName() { return "http"; }
-
-  static bool allow_self_signed_certs;
-  static std::string root_ca_file;
 
   Entd* GetEntd() { return entd_; };
 
@@ -63,8 +60,14 @@ class Http : public JSObjectWrapper<Http> {
   // Called when the update timer fires.
   bool OnNativeTimeout();
 
-  bool HttpGet(HttpRequest* request);
-  bool HttpPost(HttpRequest* request);
+  // Call the corresponding method in the messenger interface
+  // and set the timer callback to handle the results.
+  bool HttpGet(const std::string& url, HttpRequest* request);
+  bool HttpPost(const std::string& url, HttpRequest* request);
+
+  // globals
+  static bool allow_self_signed_certs;
+  static std::string root_ca_file;
 
  private:
   Entd* entd_;
