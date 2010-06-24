@@ -8,11 +8,11 @@
 // virtual
 template<typename T>
 bool JSObjectWrapper<T>::Initialize() {
-  // Get the template, builiding it if necessary
+  // Get the template, building it if necessary.
   v8::Handle<v8::FunctionTemplate> t = GetTemplate();
-  // Create a v8 Object from the template
+  // Create a v8 Object from the template.
   obj_ = v8::Persistent<v8::Object>::New(t->GetFunction()->NewInstance());
-  // Associate it with the C++ Object
+  // Associate it with the C++ Object.
   obj_->SetPointerInInternalField(0, this);
   return true;
 }
@@ -27,17 +27,18 @@ v8::Handle<v8::Value> JSObjectWrapper<T>::Construct(
     return v8::Undefined();
   }
 
-  // Construct the C++ object and initialize it
   T* instance = new T();
   instance->Initialize();
+
   v8::Handle<v8::Object> obj = instance->obj();
 
-  // Set any properties in the V8 object based on input arguments
-  // (Overridden by inherited class, otherwise this is an empty function)
-  // Note: args[N] will safely return Undefined if N is out of range
-  instance->ParseConstructorArgs(obj, args);
+  if (!instance->ParseConstructorArgs(obj, args)) {
+    // TODO(rginda): Remove this delete after we sort out a proper ownership
+    // model for these JSObjectWrapper objects.
+    delete instance;
+    return v8::Undefined();
+  }
 
-  // Return the V8 object so that JS can bind the result
   return obj;
 }
 

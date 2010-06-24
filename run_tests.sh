@@ -9,7 +9,8 @@
 
 USERNAME="user@google.com"
 ALLOW_DIRTY_EXIT=1
-PKCS11_TEST=1
+ALLOW_FILE_IO=1
+ENABLE_OPENCRYPTOKI=0
 grep "Chromium OS" /etc/lsb-release
 if [ $? == 0 ]; then
   CHROMEOS=1
@@ -59,12 +60,16 @@ function greptest {
   fi
 
   local cmd="$ENTD --username=$USERNAME $args"
-  if [ ! -z "$ALLOW_DIRTY_EXIT" ]; then
+  if [ "$ALLOW_DIRTY_EXIT" == "1" ]; then
     cmd="$cmd --allow-dirty-exit"
   fi
 
-  if [ ! -z "$PKCS11_TEST" ]; then
-    cmd="$cmd --pkcs11=test"
+  if [ "$ALLOW_FILE_IO" == "1" ]; then
+    cmd="$cmd --allow-file-io"
+  fi
+
+  if [ "$ENABLE_OPENCRYPTOKI" != "1" ]; then
+    cmd="$cmd --disable-opencryptoki"
   fi
 
   local out
@@ -73,23 +78,24 @@ function greptest {
 
   TESTS=$(($TESTS +1))
 
+  passed=1
+
   if [ $code != $expected_result ]; then
     logfail "$name: exited with $code"
-    return
+    passed=0
+  elif ! grep -q "$pattern" <(echo $out); then
+    logfail "$name: pattern not found: '$pattern'"
+    passed=0
   fi
 
-  grep -q "$pattern" <(echo $out)
-  if [ $? != 0 ]; then
-    logfail "$name: pattern not found: '$pattern'"
-    if [ ! -z "$VERBOSE" ]; then
-      echo
-      echo $cmd
-      echo
-      echo "=== OUTPUT START"
-      echo $out
-      echo "=== OUTPUT END"
-      echo
-    fi
+  if [[ "$passed" == "0" && ! -z "$VERBOSE" ]]; then
+    echo
+    echo $cmd
+    echo
+    echo "=== OUTPUT START"
+    echo $out
+    echo "=== OUTPUT END"
+    echo
   else
     logpass "$name"
   fi
@@ -121,46 +127,38 @@ greptest "http-badrequest.js" "First argument must be a Request object" '' 1
 greptest "http-redirect.js" "HTTP COMPLETE"
 
 # Pkcs11 tests.
-greptest 'pkcs11.js '\
-'--allow-file-io' \
-'{"slot1":{"label":"slot1","keyIdentifier":"key1",'\
-'"certificate":{"subject":"Test"}},'\
-'"slot2":{"label":"slot2","keyIdentifier":"key2",'\
-'"certificate":{"subject":"Test"}}}' \
-"pkcs11.js"
-greptest 'pkcs11-cert.js '\
-'--allow-file-io' \
-'{"slot1":{"label":"slot1","certificate":{"subject":"Test"}}}' \
-"pkcs11-cert.js"
-greptest "pkcs11-remove.js" "Slot1: undefined"
+greptest "pkcs11-csr.js" "LOOKS OK"
+greptest "pkcs11-cert.js" "LOOKS OK"
+greptest "pkcs11-remove.js" "LOOKS OK"
+greptest "pkcs11-ready.js" "LOOKS OK"
 
-PKCS11_TEST=
-greptest 'pkcs11-openssl.js '\
-'--pkcs11=openssl --allow-file-io' \
-'Subject:/C=US/ST=California/L=Mountain View/O=Google Inc/OU=ChromeOS' \
-"pkcs11-openssl.js"
+ENABLE_OPENCRYPTOKI=1
 
-# Pkcs11 opencryptoki tests (requires a TPM (or emulator), so chromeos only)
 if [ "$CHROMEOS" == 1 ]; then
+  # These tests requires a properly configured opencryptoki environment,
+  # so chromeos only.
   greptest 'pkcs11-opencryptoki.js '\
-'--allow-file-io' \
 '"slot1":{"label":"slot1","keyIdentifier":"1234",'\
 '"certificate":{'\
 '"subject":"/C=US/ST=California/L=Mountain View/O=Google Inc/OU=ChromeOS' \
 "pkcs11-opencryptoki.js"
   greptest 'pkcs11-opencryptoki-delete.js '\
-'--allow-file-io' \
 'Slots.slot1: undefined' \
 "pkcs11-opencryptoki-delete.js"
+else
+  # This test assumes that opencryotoki is *not* configured.
+  greptest "pkcs11-notready.js" "LOOKS OK"
 fi
-PKCS11_TEST=1
+
+ENABLE_OPENCRYPTOKI=0
 
 # Slightly longer running tests.
 greptest "settimeout.js" "string timeout function timeout"
-greptest "cleartimeout.js" "starting timeouts function timeout"
+greptest "cleartimeout.js" "LOOKS OK"
 
-# Test the callback server; doesn't run as-is on chromeos.
 if [ "$CHROMEOS" != 1 ]; then
+
+  # Test the callback server; doesn't run as-is on chromeos.
   greptest "simple-shutdown.js" "LOOKS OK"
 
   # Fire off this bg task to make an http request

@@ -149,8 +149,9 @@ StringList GetPropertyAsStringList(v8::Handle<v8::Object> obj,
   return result;
 }
 
-void ThrowV8Exception(const std::string& err) {
+v8::Handle<v8::Value> ThrowV8Exception(const std::string& err) {
   ThrowException(v8::String::New(err.c_str()));
+  return v8::Undefined();
 }
 
 void ReportV8Exception(v8::TryCatch* try_catch) {

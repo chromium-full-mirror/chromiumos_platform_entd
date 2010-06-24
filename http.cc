@@ -59,7 +59,7 @@ class HttpRequest : public JSObjectWrapper<HttpRequest> {
   // JSObjectWrapper methods
   static void SetTemplateBindings(
       v8::Handle<v8::ObjectTemplate> template_object);
-  virtual void ParseConstructorArgs(
+  virtual bool ParseConstructorArgs(
       v8::Handle<v8::Object> obj, const v8::Arguments& args);
 
   // Accessors
@@ -206,7 +206,7 @@ void HttpRequest::CallError(const std::string& errdesc) {
 // HttpRequest Static Functions...
 
 // virtual
-void HttpRequest::ParseConstructorArgs(v8::Handle<v8::Object> obj,
+bool HttpRequest::ParseConstructorArgs(v8::Handle<v8::Object> obj,
                                        const v8::Arguments& args) {
   // args[N] will return v8::Undefined if N is out of range.
   v8::Handle<v8::Value> value = args[0];
@@ -224,6 +224,8 @@ void HttpRequest::ParseConstructorArgs(v8::Handle<v8::Object> obj,
   value = args[3];
   if (!value->IsUndefined() && (value->IsObject() || value->IsArray()))
     obj->Set(v8::String::NewSymbol("headers"), value);
+
+  return true;
 }
 
 // Class HttpCurlEasy

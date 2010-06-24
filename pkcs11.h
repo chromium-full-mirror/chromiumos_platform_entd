@@ -22,6 +22,7 @@ class CSR;
 class Pkcs11CertificateHandler;
 class Pkcs11SlotHandler;
 class SlotObject;
+class Pkcs11;
 
 // Implementation class for interfacing with pkcs11 devices,
 // including generation of Certificate Service Requests (CSR)
@@ -47,6 +48,7 @@ class Pkcs11SlotHandler {
   virtual bool AddCertificate(const std::string& label,
                               const chromeos::Blob& cert,
                               const std::string& subject) = 0;
+  virtual bool ReadObjectsFromSlot(Pkcs11* pkcs11) = 0;
   virtual bool RemoveObjects(const std::string& label) = 0;
   virtual std::string GetKeyIdentifier(const std::string& label) const = 0;
   virtual std::string GetPassphrase(const std::string& label) const = 0;
@@ -82,27 +84,30 @@ class Pkcs11CertificateHandler {
 // This class wraps a V8 singleton object to handle the PKCS11 interface.
 class Pkcs11 : public JSObjectWrapper<Pkcs11> {
  public:
-  // The constructor takes two handlers:
-  // * cert_handler builds CSRs and certificates.
-  //   - builds CSRs
-  //   - may generate a public/private key pair
-  //   - parses Certificates and extracts the subject
-  // * slot_handler handles the interface with a pkcs11 device:
-  //   - may generate public/private key pairs
-  //   - stores key pairs and certificates
-  //   - retrieves a list of existing token objects in a slot
-  //
-  // If cert_handler or slot_handler NULL,
-  // the class is initialized with the default handler (see code).
-  Pkcs11(Pkcs11CertificateHandler* cert_handler,
-         Pkcs11SlotHandler* slot_handler);
+  Pkcs11();
+
   virtual ~Pkcs11();
+
+  // Initialize the instance (Must be called before using other methods.)
+  //
+  // Returns false if initialization fails fatally, in which case you should
+  // discard the object.  May return true without fully initializing the
+  // object in the case that the requisite crypto libraries fail to
+  // initialize.
+  //
+  // If that happens IsReady() will return false.  You should then
+  // invoke InitializeCrypto() later, before invoking any other functions.
   virtual bool Initialize();
-  // Set the Certificate handler to use openssl to generate CSRs
-  bool SetOpenSSLHandlers();
-  // Set the Slot handler to use opencryptoki,
-  // and the Certificate handler to use openssl
-  bool SetOpenCryptokiHandlers();
+
+  // Initialize the chosen crypto mode.  Returns true if it is able to
+  // initialize crypto, false otherwise.  You may call this multiple times.
+  // It's a no-op if crypto is already loaded, but will retry initialization
+  // if not.
+  bool InitializeCrypto();
+
+  // True if the crypto has been properly set up and the object is ready to
+  // use.
+  bool IsReady() { return handlers_ready_; }
 
   // Adds slot_object to "pkcs11.slots"
   bool AddJSSlotObject(const SlotObject* slot_object);
@@ -117,15 +122,19 @@ class Pkcs11 : public JSObjectWrapper<Pkcs11> {
   Pkcs11CertificateHandler* certificate_handler() {
     return certificate_handler_.get();
   }
+
   Pkcs11SlotHandler* slot_handler() {
     return slot_handler_.get();
   }
+
+  // globals
+  static bool enable_opencryptoki;
 
  private:
   scoped_ptr<Pkcs11CertificateHandler> certificate_handler_;
   scoped_ptr<Pkcs11SlotHandler> slot_handler_;
 
-  void SetupHandlers();
+  bool handlers_ready_;
 
   DISALLOW_COPY_AND_ASSIGN(Pkcs11);
 };

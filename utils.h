@@ -56,7 +56,7 @@ StringList GetPropertyAsStringList(v8::Handle<v8::Object> obj,
                                    const std::string& name,
                                    const std::string& delim);
 
-void ThrowV8Exception(const std::string& err);
+v8::Handle<v8::Value> ThrowV8Exception(const std::string& err);
 
 // Prints the exception described in 'try_catch'
 void ReportV8Exception(v8::TryCatch* try_catch);

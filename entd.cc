@@ -396,14 +396,8 @@ v8::Handle<v8::Object> Entd::ConstructEntd() {
             callback_server_->obj(), v8::ReadOnly);
 
   // Build the pkcs11 object
-  pkcs11_.reset(new Pkcs11(NULL, NULL));
-  bool res = pkcs11_->Initialize();
-  if (pkcs11_mode_ == "openssl") {
-    res = res && pkcs11_->SetOpenSSLHandlers();
-  } else if (pkcs11_mode_ != "test") {
-    res = res && pkcs11_->SetOpenCryptokiHandlers();
-  }
-  if (!res) {
+  pkcs11_.reset(new Pkcs11());
+  if (!pkcs11_->Initialize()) {
     LOG(ERROR) << "Error initializing entd.pkcs11";
     exit(1);
   }
@@ -543,8 +537,11 @@ bool Entd::StartScriptingEnvironment() {
       return false;
     } else if (value.IsEmpty()) {
       // Failed for other reasons
+      LOG(INFO) << "Policy onLoad failed for mysterious reasons.";
       return false;
     }
+
+    LOG(INFO) << "Policy onLoad complete.";
   }
 
   return true;
@@ -840,12 +837,12 @@ bool Entd::ExecuteFile(const std::string& filename,
                        v8::Handle<v8::Value>* result) {
   v8::HandleScope handle_scope;
   v8::Handle<v8::String> source = utils::ReadFile(filename);
-  if (!source.IsEmpty()) {
-    return ExecuteString(source, filename, result);
-  } else {
-    LOG(WARNING) << "Error reading source file: " << filename;
+  if (source.IsEmpty()) {
+    PLOG(WARNING) << "Error reading source file: " << filename;
     return false;
   }
+
+  return ExecuteString(source, filename, result);
 }
 
 bool Entd::ExecuteString(const v8::Handle<v8::String>& source,

@@ -42,9 +42,12 @@ class JSObjectWrapper {
   // Builds an instance and passes args to ParseConstructorArgs()
   static v8::Handle<v8::Value> Construct(const v8::Arguments& args);
 
-  // Override this to parse the args and set instance properties
-  virtual void ParseConstructorArgs(v8::Handle<v8::Object> obj,
+  // Subclasses can override this function to parse constructor arguments.
+  // Throw a v8 exception AND return false to indicate a failure, in which
+  // case the newly constructed object will be deleted.
+  virtual bool ParseConstructorArgs(v8::Handle<v8::Object> obj,
                                     const v8::Arguments& args) {
+    return true;
   }
 
   // Extract the C++ object pointer from the V8 object internal field 0

@@ -30,6 +30,7 @@ const int kSyslogCritical = LOG_CRIT;
 #include "entd/entd.h"
 #include "entd/extensions.h"
 #include "entd/http.h"
+#include "entd/pkcs11.h"
 #include "entd/utils.h"
 
 namespace switches {
@@ -44,8 +45,9 @@ static const char *kManifest = "manifest";
 static const char *kPolicy =   "policy";
 static const char *kUtility =  "utility";
 
-// Specify how to setup the pkcs11 interface
-static const char *kPkcs11 = "pkcs11";
+// Opencryptoki support is enabled by default.  Turn it off if you want to be
+// able to generate Certificates even if opencryptoki isn't available.
+static const char *kDisableOpencryptoki = "disable-opencryptoki";
 
 // Root CA for HTTPS requests.
 static const char *kRootCAFile = "root-ca-file";
@@ -61,6 +63,8 @@ static const char *kAllowFileIO = "allow-file-io";
 // entd.h for a little more info.
 static const char *kAllowDirtyExit = "allow-dirty-exit";
 
+// Syslogging is enabled by default if stdout is not a tty.  These flags can
+// be used to override the default logic.
 static const char *kEnableSyslog = "enable-syslog";
 static const char *kDisableSyslog = "disable-syslog";
 
@@ -129,7 +133,6 @@ int main(int argc, char** argv) {
       cl->GetSwitchValueASCII(switches::kExtensionPath);
   std::string username = cl->GetSwitchValueASCII(switches::kUsername);
   std::string root_ca_file = cl->GetSwitchValueASCII(switches::kRootCAFile);
-  std::string pkcs11_mode = cl->GetSwitchValueASCII(switches::kPkcs11);
 
   // Get file paths from a valid policy extension if it exists
   std::string extension_path;
@@ -161,17 +164,30 @@ int main(int argc, char** argv) {
   if (cl->HasSwitch(switches::kUtility))
     utility = cl->GetSwitchValueASCII(switches::kUtility);
 
-  if (cl->HasSwitch(switches::kAllowSelfSigned))
+  if (cl->HasSwitch(switches::kAllowSelfSigned)) {
+    LOG(INFO) << "Allowing self-signed certs.";
     entd::Http::allow_self_signed_certs = true;
+  }
 
-  if (cl->HasSwitch(switches::kAllowFileIO))
+  if (cl->HasSwitch(switches::kAllowFileIO)) {
+    LOG(INFO) << "Allowing File IO.";
     entd::Entd::allow_file_io = true;
+  }
 
-  if (!root_ca_file.empty())
+  if (!root_ca_file.empty()) {
+    LOG(INFO) << "Setting root CA file: " << root_ca_file;
     entd::Http::root_ca_file = root_ca_file;
+  }
 
-  if (cl->HasSwitch(switches::kAllowDirtyExit))
+  if (cl->HasSwitch(switches::kAllowDirtyExit)) {
+    LOG(INFO) << "Allowing dirty exits.";
     entd::Entd::allow_dirty_exit = true;
+  }
+
+  if (cl->HasSwitch(switches::kDisableOpencryptoki)) {
+    LOG(INFO) << "Disabling opencryptoki.";
+    entd::Pkcs11::enable_opencryptoki = false;
+  }
 
   entd::Entd d;
   d.Initialize();
@@ -187,9 +203,6 @@ int main(int argc, char** argv) {
 
   if (!policy.empty())
     d.SetPolicyFile(policy);
-
-  if (!pkcs11_mode.empty())
-    d.SetPkcs11Mode(pkcs11_mode);
 
   uint32_t rv = d.Run();
   LOG(INFO) << "Exiting entd with code: " << rv;
