@@ -31,9 +31,9 @@ const uint32_t kMaxPort      = 5999;
 
 // Incoming requests must have this content type
 const std::string kContentType = "application/json; charset=UTF-8";
-// Incoming requests must have an X-Entd-Request header set to this value.
-// In a future version, this string will come from the manifest.
-const std::string kEntdMagic   = "magic";
+
+// Default value of request_header_value_
+const std::string kDefaultRequestHeaderValue = "magic";
 
 // Callback functions must have this prefix, so we can avoid dispatching
 // against default properties that aren't actually intended to be callbacks.
@@ -108,11 +108,28 @@ v8::Handle<v8::Value> dispatch_Stop(const v8::Arguments& args) {
   return v8::Undefined();
 }
 
+// Called by v8 when someone trys to read from callbackServer.requestHeaderValue
+v8::Handle<v8::Value> dispatch_GetRequestHeaderValue(
+    v8::Local<v8::String> name,
+    const v8::AccessorInfo& info) {
+  CallbackServer* cs = CallbackServer::Unwrap(info.Holder());
+  return v8::String::New(cs->request_header_value().c_str());
+}
+
+// Called by v8 when someone trys to assign to callbackServer.requestHeaderValue
+void dispatch_SetRequestHeaderValue(v8::Local<v8::String> name,
+                                    v8::Local<v8::Value> value,
+                                    const v8::AccessorInfo& info) {
+  CallbackServer* cs = CallbackServer::Unwrap(info.Holder());
+  cs->set_request_header_value(*v8::String::Utf8Value(value));
+}
+
 }  // namespace
 
 CallbackServer::CallbackServer(Entd* entd)
     : busy_(false),
       entd_(entd),
+      request_header_value_(kDefaultRequestHeaderValue),
       evhttp_(NULL)
 {}
 
@@ -128,6 +145,9 @@ void CallbackServer::SetTemplateBindings(
                        v8::FunctionTemplate::New(dispatch_Start));
   template_object->Set(v8::String::NewSymbol("stop"),
                        v8::FunctionTemplate::New(dispatch_Stop));
+  template_object->SetAccessor(v8::String::NewSymbol("requestHeaderValue"),
+                               dispatch_GetRequestHeaderValue,
+                               dispatch_SetRequestHeaderValue);
 }
 
 void CallbackServer::OnRequest(struct evhttp_request* request) {
@@ -164,7 +184,7 @@ void CallbackServer::OnRequest(struct evhttp_request* request) {
   // This header must be present, since Chrome's XMLHttpRequest object
   // won't let you set an unknown header for cross domain XHR.
   header = evhttp_find_header(request->input_headers, "X-Entd-Request");
-  if (!header || strcmp(kEntdMagic.c_str(), header) != 0) {
+  if (!header || strcmp(request_header_value_.c_str(), header) != 0) {
     LOG(ERROR) << "Bad or missing X-Entd-Request header";
     evhttp_send_error(request, kHttpBadRequest, "Bad X-Entd-Request header");
     return;

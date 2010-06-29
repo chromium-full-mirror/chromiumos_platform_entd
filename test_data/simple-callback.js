@@ -4,7 +4,8 @@
 
 entd.onLoad =
 function onLoad(manifest) {
-  entd.callbackServer.start(callbacks);
+  entd.callbackServer.requestHeaderValue = "test-magic";
+  entd.callbackServer.start(callbacks, 5200);
 }
 
 callbacks = new Object();

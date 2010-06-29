@@ -80,6 +80,10 @@ function Policy(manifest) {
   // Save off the entire manifest in case we need it later.
   this.manifest = manifest;
 
+  // Set the required magic header value for the callback server.
+  if ('requestHeaderValue' in manifest)
+    entd.callbackServer.requestHeaderValue = manifest.requestHeaderValue;
+
   this.variables_ = {};
   if (manifest.variables) {
     // The manifest may have set some parameters for this policy.  If

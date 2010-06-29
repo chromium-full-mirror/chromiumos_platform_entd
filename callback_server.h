@@ -55,6 +55,14 @@ class CallbackServer : public JSObjectWrapper<CallbackServer> {
     return true;
   }
 
+  virtual std::string request_header_value() {
+    return request_header_value_;
+  }
+
+  virtual void set_request_header_value(std::string value) {
+    request_header_value_ = value;
+  }
+
   // Start the callback server with a particular set of callbacks and
   // on a given port number.
   virtual bool Start(v8::Handle<v8::Object> callbacks, int port);
@@ -89,6 +97,9 @@ class CallbackServer : public JSObjectWrapper<CallbackServer> {
 
   // JS Object containing the callback functions we might dispatch to.
   v8::Persistent<v8::Object> callbacks_;
+
+  // The value required in the X-Entd-Request header.
+  std::string request_header_value_;
 
   // Non-null if the server is running.
   struct evhttp* evhttp_;

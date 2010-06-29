@@ -156,21 +156,17 @@ ENABLE_OPENCRYPTOKI=0
 greptest "settimeout.js" "string timeout function timeout"
 greptest "cleartimeout.js" "LOOKS OK"
 
-if [ "$CHROMEOS" != 1 ]; then
+greptest "simple-shutdown.js" "LOOKS OK"
 
-  # Test the callback server; doesn't run as-is on chromeos.
-  greptest "simple-shutdown.js" "LOOKS OK"
+# Fire off this bg task to make an http request
+(sleep 2; \
+  curl --data-binary '{"function": "stop"}' \
+  -H "Content-Type: application/json; charset=UTF-8" \
+  -H "X-Entd-Request: test-magic" \
+  localhost:5200/dispatch -so /dev/null) &
 
-  # Fire off this bg task to make an http request
-  (sleep 2; \
-    curl --data-binary '{"function": "stop"}' \
-      -H "Content-Type: application/json; charset=UTF-8" \
-      -H "X-Entd-Request: magic" \
-      localhost:5199/dispatch -so /dev/null) &
-
-  # Then start up the callback server before the timeout fires.
-  greptest "simple-callback.js" "Stopping callback server"
-fi
+# Then start up the callback server before the timeout fires.
+greptest "simple-callback.js" "Stopping callback server"
 
 echo
 echo "Tests completed: $TESTS"
