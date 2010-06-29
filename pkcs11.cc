@@ -29,7 +29,7 @@
 namespace entd {
 
 // Class SlotObject declaration (implementation below)
-// SlotObject JavaScript interface wrapper around Pkcs11SlotHandler.
+// SlotObject JavaScript interface wrapper around SlotHandler.
 class SlotObject : public JSObjectWrapper<SlotObject> {
  public:
   SlotObject() : slot_handler_(NULL) {}
@@ -53,7 +53,7 @@ class SlotObject : public JSObjectWrapper<SlotObject> {
   std::string GetPublicKey() const {
     return slot_handler()->GetPublicKey(label_);
   }
-  Pkcs11SlotHandler* slot_handler() const { return slot_handler_; }
+  SlotHandler* slot_handler() const { return slot_handler_; }
 
   // Setters
 
@@ -65,7 +65,7 @@ class SlotObject : public JSObjectWrapper<SlotObject> {
   const void SetPassphrase(const std::string& passphrase) {
     passphrase_ = passphrase;
   }
-  void SetSlotHandler(Pkcs11SlotHandler* slot_handler) {
+  void SetSlotHandler(SlotHandler* slot_handler) {
     slot_handler_ = slot_handler;
   }
 
@@ -73,13 +73,13 @@ class SlotObject : public JSObjectWrapper<SlotObject> {
   std::string label_;
   std::string key_identifier_;
   std::string passphrase_;
-  Pkcs11SlotHandler* slot_handler_;
+  SlotHandler* slot_handler_;
 
   DISALLOW_COPY_AND_ASSIGN(SlotObject);
 };
 
 // Class Certificate declaration (implementation below)
-// Certificate JavaScript interface wrapper around Pkcs11CertificateHandler.
+// Certificate JavaScript interface wrapper around CertificateHandler.
 class Certificate : public JSObjectWrapper<Certificate> {
  public:
   Certificate() {}
@@ -97,11 +97,11 @@ class Certificate : public JSObjectWrapper<Certificate> {
   const std::string& subject() const { return subject_; }
 
   // Certificate handler management
-  static void InitCertificateHandler(Pkcs11CertificateHandler* handler) {
+  static void InitCertificateHandler(CertificateHandler* handler) {
     certificate_handler_ = handler;
   }
 
-  static Pkcs11CertificateHandler* certificate_handler() {
+  static CertificateHandler* certificate_handler() {
     return certificate_handler_;
   }
 
@@ -110,21 +110,21 @@ class Certificate : public JSObjectWrapper<Certificate> {
   // instead of a string.
   chromeos::Blob certificate_;
   std::string subject_;
-  static Pkcs11CertificateHandler* certificate_handler_;
+  static CertificateHandler* certificate_handler_;
 
   DISALLOW_COPY_AND_ASSIGN(Certificate);
 };
 
-// Class Pkcs11CertificateHandlerLibOpenSsl
+// Class CertificateHandlerOpenSsl
 // Implements CSR generation using the openssl crypto library
 //
 // TODO(rginda): Refactor most of the implementation of this class out
 // into an openssl_utils module.
-class Pkcs11CertificateHandlerLibOpenSsl : public Pkcs11CertificateHandler {
+class CertificateHandlerOpenSsl : public CertificateHandler {
  public:
-  Pkcs11CertificateHandlerLibOpenSsl() {}
+  CertificateHandlerOpenSsl() {}
 
-  virtual ~Pkcs11CertificateHandlerLibOpenSsl() {}
+  virtual ~CertificateHandlerOpenSsl() {}
 
   virtual bool Initialize() { return true; }
 
@@ -483,25 +483,25 @@ class Pkcs11CertificateHandlerLibOpenSsl : public Pkcs11CertificateHandler {
   std::string public_key_;
   chromeos::Blob private_key_der_;
 
-  DISALLOW_COPY_AND_ASSIGN(Pkcs11CertificateHandlerLibOpenSsl);
+  DISALLOW_COPY_AND_ASSIGN(CertificateHandlerOpenSsl);
 };
 
 // Use 2048 bits for the key length, and an exponent of 0x10001.
-const long Pkcs11CertificateHandlerLibOpenSsl::kRsaKeyLength = 2048;
-const long Pkcs11CertificateHandlerLibOpenSsl::kRsaKeyExponent = 0x10001;
+const long CertificateHandlerOpenSsl::kRsaKeyLength = 2048;
+const long CertificateHandlerOpenSsl::kRsaKeyExponent = 0x10001;
 // Max number of chars for local array allocation for file paths.
-const long Pkcs11CertificateHandlerLibOpenSsl::kMaxFilePath = 1024;
+const long CertificateHandlerOpenSsl::kMaxFilePath = 1024;
 
-// Class Pkcs11SlotHandlerInMemory
+// Class SlotHandlerInMemory
 // Stores the contents of slots in memory, used for testing the interface.
-class Pkcs11SlotHandlerInMemory : public Pkcs11SlotHandler {
+class SlotHandlerInMemory : public SlotHandler {
  protected:
   // Forward declarations and typedefs.
   struct Object;
   typedef std::map<std::string, std::tr1::shared_ptr<Object> > ObjectMap;
 
  public:
-  Pkcs11SlotHandlerInMemory() { }
+  SlotHandlerInMemory() { }
   virtual bool Initialize() { return true; }
 
   virtual bool SetUserPin(const std::string& pin) { return true; }
@@ -661,17 +661,17 @@ class Pkcs11SlotHandlerInMemory : public Pkcs11SlotHandler {
 
   ObjectMap objects_;
 
-  DISALLOW_COPY_AND_ASSIGN(Pkcs11SlotHandlerInMemory);
+  DISALLOW_COPY_AND_ASSIGN(SlotHandlerInMemory);
 };
 
-// Class Pkcs11SlotHandlerOpenCryptoki
-// Inherits from Pkcs11SlotHandlerInMemory to share memory mapping of objects
-class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
+// Class SlotHandlerOpenCryptoki
+// Inherits from SlotHandlerInMemory to share memory mapping of objects
+class SlotHandlerOpenCryptoki : public SlotHandlerInMemory {
  public:
-  Pkcs11SlotHandlerOpenCryptoki()
+  SlotHandlerOpenCryptoki()
       : user_pin_(""), slot_index_(0), slot_id_(0) { }
 
-  ~Pkcs11SlotHandlerOpenCryptoki() {
+  ~SlotHandlerOpenCryptoki() {
     C_Finalize(NULL);
   }
 
@@ -758,17 +758,17 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
 
     bool res;
     if (slot_index_ == num_slots) {
-      LOG(ERROR) << "Pkcs11SlotHandlerOpenCryptoki Faied to find a valid slot.";
+      LOG(ERROR) << "SlotHandlerOpenCryptoki Faied to find a valid slot.";
       res = false;
     } else {
-      LOG(INFO) << "Pkcs11SlotHandlerOpenCryptoki Initialized. Using slot: "
+      LOG(INFO) << "SlotHandlerOpenCryptoki Initialized. Using slot: "
                 << slot_index_;
       res = true;
     }
 
     free(slot_list);
     if (res) {
-      res = Pkcs11SlotHandlerInMemory::Initialize();
+      res = SlotHandlerInMemory::Initialize();
     }
 
     return res;
@@ -903,7 +903,7 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
     const std::size_t MAX_KEY_LENGTH = 16;
     if (keyid.length() > MAX_KEY_LENGTH)
         return false;
-    return Pkcs11SlotHandlerInMemory::SetKeyIdentifier(label, keyid);
+    return SlotHandlerInMemory::SetKeyIdentifier(label, keyid);
   }
 
   virtual bool SetUserPin(const std::string& pin) {
@@ -1279,11 +1279,11 @@ class Pkcs11SlotHandlerOpenCryptoki : public Pkcs11SlotHandlerInMemory {
   CK_ULONG slot_index_;
   CK_SLOT_ID slot_id_;
 
-  DISALLOW_COPY_AND_ASSIGN(Pkcs11SlotHandlerOpenCryptoki);
+  DISALLOW_COPY_AND_ASSIGN(SlotHandlerOpenCryptoki);
 };
 
 // Class CSR
-// CSR JavaScript interface wrapper around Pkcs11CertificateHandler.
+// CSR JavaScript interface wrapper around CertificateHandler.
 class CSR : public JSObjectWrapper<CSR> {
  public:
   CSR() { }
@@ -1300,23 +1300,23 @@ class CSR : public JSObjectWrapper<CSR> {
   const std::string& request() const { return request_; }
 
   // Certificate handler management
-  static void InitCertificateHandler(Pkcs11CertificateHandler* cert_handler) {
+  static void InitCertificateHandler(CertificateHandler* cert_handler) {
     certificate_handler_ = cert_handler;
   }
-  static Pkcs11CertificateHandler* certificate_handler() {
+  static CertificateHandler* certificate_handler() {
     return certificate_handler_;
   }
 
  private:
   std::string request_;
 
-  static Pkcs11CertificateHandler* certificate_handler_;
+  static CertificateHandler* certificate_handler_;
 
   DISALLOW_COPY_AND_ASSIGN(CSR);
 };
 
 // static
-Pkcs11CertificateHandler* CSR::certificate_handler_ = NULL;
+CertificateHandler* CSR::certificate_handler_ = NULL;
 
 // Base64 encoded version of the CSR
 static v8::Handle<v8::Value> dispatch_CSRToString(const v8::Arguments& args) {
@@ -1370,7 +1370,7 @@ bool CSR::ParseConstructorArgs(
 // Class Certificate Implementation
 
 // static
-Pkcs11CertificateHandler* Certificate::certificate_handler_ = NULL;
+CertificateHandler* Certificate::certificate_handler_ = NULL;
 
 // Returns the contents of the Certificate as a string.
 // Note: if this is binary and not Base64, results may be unexpected.
@@ -1612,7 +1612,7 @@ bool Pkcs11::InitializeCrypto() {
   if (handlers_ready_)
     return true;
 
-  certificate_handler_.reset(new Pkcs11CertificateHandlerLibOpenSsl());
+  certificate_handler_.reset(new CertificateHandlerOpenSsl());
   if (!certificate_handler_.get() || !certificate_handler_->Initialize()) {
     LOG(WARNING) << "Certificate Handler failed to initialize.";
     certificate_handler_.reset();
@@ -1622,10 +1622,10 @@ bool Pkcs11::InitializeCrypto() {
 
   if (Pkcs11::enable_opencryptoki) {
     LOG(INFO) << "Initializing opencryptoki slot handler.";
-    slot_handler_.reset(new Pkcs11SlotHandlerOpenCryptoki());
+    slot_handler_.reset(new SlotHandlerOpenCryptoki());
   } else {
     LOG(INFO) << "Initializing in-memory slot handler.";
-    slot_handler_.reset(new Pkcs11SlotHandlerInMemory());
+    slot_handler_.reset(new SlotHandlerInMemory());
   }
 
   if (!slot_handler_.get() || !slot_handler_->Initialize()) {
@@ -1763,7 +1763,7 @@ void Pkcs11::SetTemplateBindings(
 
 #if 0
 // NOTE(rginda): This could potentially be
-// Pkcs11SlotHandlerOpencryptoki::GenerateKeyPair, except it's known to not
+// SlotHandlerOpencryptoki::GenerateKeyPair, except it's known to not
 // work.  The symptom is that it generates broken keys with a "0" exponent.
 // The guess is that this is due to a bug in opencryptoki, though it could
 // also be a bug in this chunk of code.  For now, we just generate keypairs

@@ -19,8 +19,8 @@ namespace entd {
 
 class Certificate;
 class CSR;
-class Pkcs11CertificateHandler;
-class Pkcs11SlotHandler;
+class CertificateHandler;
+class SlotHandler;
 class SlotObject;
 class Pkcs11;
 
@@ -32,9 +32,9 @@ class Pkcs11;
 
 
 // Pure Interface class for defining PKCS11 slot handlers
-class Pkcs11SlotHandler {
+class SlotHandler {
  public:
-  virtual ~Pkcs11SlotHandler() {}
+  virtual ~SlotHandler() {}
   virtual bool Initialize() = 0;
   virtual bool SetUserPin(const std::string& pin) = 0;
   virtual bool SetKeyIdentifier(const std::string& label,
@@ -57,10 +57,10 @@ class Pkcs11SlotHandler {
 };
 
 // Pure Interface class for defining certificate handlers.
-class Pkcs11CertificateHandler {
+class CertificateHandler {
  public:
-  Pkcs11CertificateHandler() : slot_handler_(NULL) {}
-  virtual ~Pkcs11CertificateHandler() {}
+  CertificateHandler() : slot_handler_(NULL) {}
+  virtual ~CertificateHandler() {}
   virtual bool Initialize() = 0;
   virtual bool BuildCSR(const std::string& label,
                         const std::string& subject,
@@ -69,14 +69,14 @@ class Pkcs11CertificateHandler {
                                 chromeos::Blob* certificate,
                                 std::string* subject) = 0;
   // SetSlotHandler() is called from Pkcs11::Initialize with its
-  // Pkcs11SlotHandler implementation for the benefit of certificate handlers
+  // SlotHandler implementation for the benefit of certificate handlers
   // that need access to the slot handler (e.g. for encryption).
-  void SetSlotHandler(Pkcs11SlotHandler* slot_handler) {
+  void SetSlotHandler(SlotHandler* slot_handler) {
     slot_handler_ = slot_handler;
   }
-  Pkcs11SlotHandler* slot_handler() { return slot_handler_; }
+  SlotHandler* slot_handler() { return slot_handler_; }
  private:
-  Pkcs11SlotHandler* slot_handler_;
+  SlotHandler* slot_handler_;
 };
 
 // Pkcs11 JavaScript Interface class.
@@ -119,11 +119,11 @@ class Pkcs11 : public JSObjectWrapper<Pkcs11> {
       v8::Handle<v8::ObjectTemplate> template_object);
 
   // Accessors for V8 callbacks
-  Pkcs11CertificateHandler* certificate_handler() {
+  CertificateHandler* certificate_handler() {
     return certificate_handler_.get();
   }
 
-  Pkcs11SlotHandler* slot_handler() {
+  SlotHandler* slot_handler() {
     return slot_handler_.get();
   }
 
@@ -131,8 +131,8 @@ class Pkcs11 : public JSObjectWrapper<Pkcs11> {
   static bool enable_opencryptoki;
 
  private:
-  scoped_ptr<Pkcs11CertificateHandler> certificate_handler_;
-  scoped_ptr<Pkcs11SlotHandler> slot_handler_;
+  scoped_ptr<CertificateHandler> certificate_handler_;
+  scoped_ptr<SlotHandler> slot_handler_;
 
   bool handlers_ready_;
 
