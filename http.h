@@ -10,7 +10,7 @@
 #include <base/basictypes.h>
 #include <v8.h>
 
-#include "entd/js_object_wrapper.h"
+#include "entd/scriptable.h"
 
 namespace entd {
 
@@ -30,8 +30,8 @@ class HttpMessengerInterface {
   virtual int Update() = 0;
   // Send a Request using HTTP to 'url',
   // and set up 'request' to receive the results.
-  virtual bool HttpGet(const std::string& url, HttpRequest* request) = 0;
-  virtual bool HttpPost(const std::string& url, HttpRequest* request) = 0;
+  virtual bool HttpGet(HttpRequest* request) = 0;
+  virtual bool HttpPost(HttpRequest* request) = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(HttpMessengerInterface);
@@ -39,31 +39,30 @@ class HttpMessengerInterface {
 
 // Defines an interface between V8 and a HttpMessengerInterface
 // Example Usage:
-//   jshttp_ = new Http(NULL);  // NULL = use default (Curl) Messenger
-//   if (jshttp_->Initialize())
-//     my_v8_object->Set(String::NewSymbol("http"), jshttp_->obj());
-class Http : public JSObjectWrapper<Http> {
+//   Http::Reference http = Http::New();
+//   // NULL = use default (Curl) Messenger
+//   bool rv = http->Initialize(entd, NULL);
+//   if (rv)
+//     my_v8_object->Set(String::NewSymbol("http"), jshttp->js_object());
+class Http : public Scriptable<Http> {
  public:
   // 'entd' and 'messenger' are non-const interfaces.
-  Http(Entd* entd, HttpMessengerInterface* messenger);
+  Http();
   virtual ~Http();
-  virtual bool Initialize();
-  static const char* GetClassName() { return "http"; }
+  virtual bool Initialize(Entd* entd, HttpMessengerInterface* messenger);
+  static const std::string class_name() { return "entd.http"; }
 
   Entd* GetEntd() { return entd_; };
 
-  // Bind functions / properties to the V8 template object:
-  //  "GET", "POST", and "Request"
-  static void SetTemplateBindings(
-      v8::Handle<v8::ObjectTemplate> template_object);
+  static bool InitializeTemplate(v8::Handle<v8::FunctionTemplate> t);
 
   // Called when the update timer fires.
   bool OnNativeTimeout();
 
   // Call the corresponding method in the messenger interface
   // and set the timer callback to handle the results.
-  bool HttpGet(const std::string& url, HttpRequest* request);
-  bool HttpPost(const std::string& url, HttpRequest* request);
+  bool HttpGet(HttpRequest* request);
+  bool HttpPost(HttpRequest* request);
 
   // globals
   static bool allow_self_signed_certs;

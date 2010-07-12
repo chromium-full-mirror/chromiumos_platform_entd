@@ -120,10 +120,12 @@ greptest "--extension-path=test_data/Extensions" '{"foo":1,"bar":2}'
 
 # Http tests.
 greptest "http-good.js" "HTTP COMPLETE"
+greptest "http-badcall.js" "LOOKS OK"
 greptest "http-badhost.js" "HTTP ERROR: Couldn't resolve"
 greptest "http-badport.js" "LOOKS OK"
 greptest "http-evilhost.js" "Invalid hostname" '' 1
-greptest "http-badrequest.js" "First argument must be a Request object" '' 1
+greptest "http-badrequest.js" "LOOKS OK"
+greptest "http-leak.js" "LOOKS OK"
 greptest "http-redirect.js" "HTTP COMPLETE"
 
 # Pkcs11 tests.

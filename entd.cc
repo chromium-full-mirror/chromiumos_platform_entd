@@ -17,6 +17,7 @@
 #include "entd/flimflam.h"
 #include "entd/http.h"
 #include "entd/pkcs11.h"
+#include "entd/scriptable.h"
 #include "entd/syslog.h"
 #include "entd/utils.h"
 
@@ -301,6 +302,12 @@ v8::Handle<v8::Value> dispatch_WriteToFile(const v8::Arguments& args) {
   return v8::True();
 }
 
+// Called by v8 for the global object's GC() method.
+v8::Handle<v8::Value> dispatch_GC(const v8::Arguments& args) {
+  v8::V8::LowMemoryNotification();
+  return v8::Undefined();
+}
+
 Entd::Entd()
     : callback_server_(NULL),
       flimflam_(new Flimflam()),
@@ -370,13 +377,13 @@ v8::Handle<v8::Object> Entd::ConstructEntd() {
             flimflam_->obj(), v8::ReadOnly);
 
   // Build the http object.
-  http_.reset(new Http(this, NULL));
-  if (!http_->Initialize()) {
+  Http::Reference http = Http::New();
+  if (http.IsEmpty() || !http->Initialize(this, NULL)) {
     LOG(ERROR) << "Error initializing entd.http";
     exit(1);
   }
   entd->Set(v8::String::NewSymbol("http"),
-            http_->obj(), v8::ReadOnly);
+            http.js_object(), v8::ReadOnly);
 
   // Build the syslog object.
   if (!syslog_->Initialize()) {
@@ -419,6 +426,10 @@ bool Entd::StartScriptingEnvironment() {
   global_template->Set(v8::String::NewSymbol("println"),
                        v8::FunctionTemplate::New(dispatch_PrintLn),
                        v8::ReadOnly);
+  global_template->Set(v8::String::NewSymbol("GC"),
+                       v8::FunctionTemplate::New(dispatch_GC),
+                       v8::ReadOnly);
+
   if (allow_file_io) {
     global_template->Set(v8::String::NewSymbol("readFromFile"),
                          v8::FunctionTemplate::New(dispatch_ReadFromFile),

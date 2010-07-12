@@ -7,5 +7,17 @@
 entd.onLoad =
 function onLoad(manifest)
 {
-  entd.http.GET({});
+  try {
+    entd.http.GET({});
+  } catch (ex) {
+    if (ex.toString().match(/expected.*Request/i)) {
+      println("LOOKS OK");
+      return;
+    }
+
+    println("Got unexpected exception: " + ex);
+    return;
+  }
+
+  println("Expected bogus entd.http.GET() to fail.");
 }
