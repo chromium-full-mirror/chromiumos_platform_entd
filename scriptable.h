@@ -276,6 +276,18 @@ class Scriptable {
     return args.This();
   };
 
+  // Set up the construction of a new instance of this class from native code.
+  //
+  // We don't want the script constructor running when we construct from
+  // native code.  The script constructor takes its arguments from script,
+  // so we'd have to convert everything into v8::Values, so that the
+  // native code on the other end could unwrap it.  Instead, when constructing
+  // from native code, we change the constructor's InvocationCallback from
+  // ScriptConstruct to NativeConstruct.  NativeConstruct just returns
+  // args.This() object without creating a new native object or
+  // calling T::Construct().
+  static v8::Handle<v8::Value> NativeConstruct(const v8::Arguments& args);
+
   // Set up the construction of a new instance of this class from JavaScript.
   //
   // This ensures that the constructor was called with the JavaScript 'new'
@@ -289,7 +301,7 @@ class Scriptable {
   //
   // This is hooked up to the InvocationCallback of T::constructor_template
   // by default.
-  static v8::Handle<v8::Value> BaseConstruct(const v8::Arguments& args);
+  static v8::Handle<v8::Value> ScriptConstruct(const v8::Arguments& args);
 
   // Called when the internal weak reference to the JavaScript face of this
   // object has indicated there are no more references.  This will delete

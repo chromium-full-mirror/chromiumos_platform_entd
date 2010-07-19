@@ -13,15 +13,30 @@ v8::Handle<v8::Value> Scriptable<T>::ThrowException(
 }
 
 // static
-
 template<typename T>
 typename Scriptable<T>::Reference Scriptable<T>::New() {
   T* native_ptr = new T();
   if (!native_ptr)
     return NULL;
 
-  v8::Handle<v8::Function> ctor = T::constructor_template()->GetFunction();
-  v8::Handle<v8::Object> js_object = ctor->NewInstance();
+  v8::Handle<v8::FunctionTemplate> ctor_t = T::constructor_template();
+
+  // Swap out the InvocationCallback so we don't run the construct-from-script
+  // logic for this.
+  ctor_t->SetCallHandler(T::NativeConstruct);
+
+  // Then construct the new JavaScript instance.
+  v8::Handle<v8::Object> js_object = ctor_t->GetFunction()->NewInstance();
+
+  // Finally, replace our InvocationCallback so script construction works
+  // again.
+  ctor_t->SetCallHandler(T::ScriptConstruct);
+
+  if (js_object.IsEmpty()) {
+    LOG(ERROR) << "Constructor for " << T::class_name() << " returned an "
+        "empty instance.";
+    return NULL;
+  }
 
   if (!native_ptr->set_js_object(js_object)) {
     delete native_ptr;
@@ -61,11 +76,11 @@ v8::Handle<v8::FunctionTemplate> Scriptable<T>::constructor_template() {
   if (cached_template.IsEmpty()) {
     cached_template =
         v8::Persistent<v8::FunctionTemplate>::New(
-            v8::FunctionTemplate::New(T::BaseConstruct));
+            v8::FunctionTemplate::New(T::ScriptConstruct));
     if (cached_template.IsEmpty())
       return cached_template;
 
-    cached_template->SetClassName(v8::String::New(class_name().c_str()));
+    cached_template->SetClassName(v8::String::New(T::class_name().c_str()));
     cached_template->InstanceTemplate()->SetInternalFieldCount(1);
 
     v8::Handle<v8::Function> func = cached_template->GetFunction();
@@ -73,7 +88,7 @@ v8::Handle<v8::FunctionTemplate> Scriptable<T>::constructor_template() {
                       Scriptable<T>::GetInstanceCount);
 
     if (!T::InitializeTemplate(cached_template)) {
-      LOG(ERROR) << "Error setting up template for " << class_name();
+      LOG(ERROR) << "Error setting up template for " << T::class_name();
       cached_template.Dispose();
     }
   }
@@ -83,11 +98,24 @@ v8::Handle<v8::FunctionTemplate> Scriptable<T>::constructor_template() {
 
 // static
 template<typename T>
-v8::Handle<v8::Value> Scriptable<T>::BaseConstruct(const v8::Arguments& args) {
+v8::Handle<v8::Value> Scriptable<T>::NativeConstruct(
+    const v8::Arguments& args) {
+  return args.This();
+}
+
+// static
+template<typename T>
+v8::Handle<v8::Value> Scriptable<T>::ScriptConstruct(
+    const v8::Arguments& args) {
   if (!args.IsConstructCall())
     return ThrowException("Function must be called as a constructor");
 
-  v8::Handle<v8::Object> self = args.This()->ToObject();
+  v8::Handle<v8::Object> self = args.This();
+  if (self.IsEmpty()) {
+    return ThrowException("Error constructing " + T::class_name() +
+                          ": 'this' object is missing");
+  }
+
   T* native_object = new T();
   if (!native_object->set_js_object(self)) {
     // This should never happen.  It would mean that v8 constructed a `this`
@@ -142,7 +170,14 @@ T* Scriptable<T>::UnwrapOrThrow(const v8::Handle<v8::Value>& value,
 template<typename T>
 bool Scriptable<T>::set_js_object(v8::Handle<v8::Object> js_object) {
   if (!js_object_.IsEmpty()) {
-    LOG(ERROR) << "Attempt to change js_object of existing instance.";
+    LOG(ERROR) << "Attempt to change " << T::class_name() <<
+        " js_object of existing instance.";
+    return false;
+  }
+
+  if (js_object.IsEmpty()) {
+    LOG(ERROR) << "Attempt to set " << T::class_name() <<
+        " js_object to an empty handle.";
     return false;
   }
 
