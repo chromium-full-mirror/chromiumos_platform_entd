@@ -59,10 +59,14 @@ class Http : public Scriptable<Http> {
   // Called when the update timer fires.
   bool OnNativeTimeout();
 
+  // Utility function.  TODO(rginda): move this onto the Request class.
+  bool ComputeRequestUrl(Entd* entd, const HttpRequest& request,
+                         std::string* url);
+
   // Call the corresponding method in the messenger interface
   // and set the timer callback to handle the results.
-  bool HttpGet(HttpRequest* request);
-  bool HttpPost(HttpRequest* request);
+  v8::Handle<v8::Value> HttpGet(const v8::Arguments& args);
+  v8::Handle<v8::Value> HttpPost(const v8::Arguments& args);
 
   // globals
   static bool allow_self_signed_certs;

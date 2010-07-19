@@ -70,12 +70,18 @@ template<typename T>
 class Scriptable {
  public:
 
+  typedef v8::Handle<v8::Value> (T::*ScriptableMethod)(
+      const v8::Arguments& args);
+
   // Utility class to manage a reference to a Scriptable object.
   //
   // Use this class to ensure that you have a persistent handle keeping your
   // scriptable object alive.
   class Reference {
    public:
+    // Construct a reference that doesn't point anywhere yet.
+    Reference() { set_native_ptr(NULL); }
+
     // Construct from a JS Object.
     //
     // This may 'fail' if the provided value is not a JavaScript object or the
@@ -89,9 +95,7 @@ class Scriptable {
     Reference(T* native_ptr) { set_native_ptr(native_ptr); }
 
     // Copy constructor.
-    Reference(const Reference& source) {
-      set_native_ptr(source.native_ptr());
-    }
+    Reference(const Reference& source) { Copy(source); }
 
     // Dispose of the persistent handle when the reference dies.
     ~Reference() { if (!js_object_.IsEmpty()) js_object_.Dispose(); }
@@ -102,12 +106,18 @@ class Scriptable {
     // Returns true if the reference has not been initialized.
     bool IsEmpty() const { return native_ptr_ == NULL; }
 
+    // Copy another reference, return true if the new reference is not empty.
+    bool Copy(const Reference& source) {
+      set_native_ptr(source.native_ptr());
+      return native_ptr_ != NULL;
+    }
+
     // Change the referent by JavaScript value.
     //
     // Returns false if the provided value is not an object or is not
     // an instance of Scriptable<T>::constructor_template.
     //
-    // Releives the previous referent, even if the assignment fails.
+    // Relieves the previous referent, even if the assignment fails.
     bool set_js_object(v8::Handle<v8::Value> value) {
       if (!js_object_.IsEmpty())
         js_object_.Dispose();
@@ -123,7 +133,7 @@ class Scriptable {
     // Return the JavaScript object referred to by this reference.
     v8::Handle<v8::Object> js_object() const { return js_object_; }
 
-    // Change the referent by native pointer, Releiving the previous referent.
+    // Change the referent by native pointer, Relieving the previous referent.
     void set_native_ptr(T* native_ptr) {
       if (!js_object_.IsEmpty())
         js_object_.Dispose();
@@ -141,8 +151,6 @@ class Scriptable {
     const T& native_ref() const { return *native_ptr_; }
 
    private:
-    Reference() {}
-
     T* native_ptr_ ;
     v8::Persistent<v8::Object> js_object_;
   };
@@ -188,6 +196,10 @@ class Scriptable {
   // T::Construct() instead.  See the Construct() method below for more
   // details.
   static bool InitializeTemplate(v8::Handle<v8::FunctionTemplate> ctor);
+
+  // Bind a method of this class to a method on a Object or Function template.
+  static void BindMethod(v8::Handle<v8::Template> tpl,
+                         ScriptableMethod callback, const char *name);
 
   // Fetch the native object associated with a JS value.
   //
@@ -246,29 +258,21 @@ class Scriptable {
   //
   // Your custom Construct method might look something like...
   //
-  // static Handle<Value> Foo::Construct(const Arguments& args) {
+  // Handle<Value> Foo::Construct(const Arguments& args) {
   //   if (args.Length > 0) {
   //     // Throw an exception and return Undefined() if things don't go
   //     // well.
   //     return ThrowException("Expected no arguments");
   //   }
   //
-  //   // Get the JS Object representing `this`, so we can add properties
-  //   // and stuff.
-  //   v8::Handle<v8::Object> self = value->ToObject();
-  //
-  //   // Get the native object associated with `this`, so we can complete
-  //   // its initialization.
-  //   Foo* foo_ptr = Foo::Unwrap(self);
-  //
   //   // Perform some Foo specific initialization...
-  //   foo_ptr->Initialize(...);
+  //   Initialize(...);
   //
   //   // Make sure to return the new instance on success...
   //   return value;
   // }
   //
-  static v8::Handle<v8::Value> Construct(const v8::Arguments& args) {
+  v8::Handle<v8::Value> Construct(const v8::Arguments& args) {
     return args.This();
   };
 
@@ -299,6 +303,40 @@ class Scriptable {
   virtual ~Scriptable() { Scriptable<T>::InstanceCount(-1); }
 
  private:
+  // Functioniod class to thunk from a static v8::InvocationCallback to a
+  // method of T.  Used by T::BindMethod.
+  class Dispatcher {
+   public:
+    Dispatcher(ScriptableMethod callback) : callback_(callback) {}
+
+    // Standard static v8::InvocationCallback which dispatches to a method
+    // on an instance of T.
+    static v8::Handle<v8::Value> Callback(const v8::Arguments& args) {
+      T* native_ptr = T::UnwrapOrThrow(args.This(), "this");
+      if (!native_ptr)
+        return v8::Undefined();
+
+      Dispatcher* dispatcher = reinterpret_cast<Dispatcher*>(
+          v8::External::Unwrap(args.Data()));
+
+      if (!dispatcher) {
+        return T::ThrowException("Unexpected error unwrapping "
+                                 "dispatcher object");
+      }
+
+      // Ok, so, all of the boilerplate ugliness that this class is intended
+      // to save gets wrung out of the client code and collects here, in this
+      // funky line of code.  All it's doing is applying the
+      // dispatcher->callback_ method to the object pointed to by native_ptr.
+      // C++ makes us feel bad about it by making it ugly, but it's worth
+      // the guilt.
+      return ((*native_ptr).*(dispatcher->callback_))(args);
+    }
+
+   private:
+    ScriptableMethod callback_;
+  };
+
   // Reference to the JavaScript notion of this instance.  This is a weak
   // reference and will not partake in keeping this object alive.
   v8::Persistent<v8::Object> js_object_;

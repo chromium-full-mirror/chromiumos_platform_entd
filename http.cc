@@ -58,7 +58,7 @@ class HttpRequest : public Scriptable<HttpRequest> {
   static const std::string class_name() { return "entd.http.Request"; }
   static bool InitializeTemplate(v8::Handle<v8::FunctionTemplate> t);
 
-  static v8::Handle<v8::Value> Construct(const v8::Arguments& args);
+  v8::Handle<v8::Value> Construct(const v8::Arguments& args);
 
   std::string GetString(const std::string& name) const;
   utils::StringList GetStringList(const std::string& name,
@@ -201,9 +201,8 @@ void HttpRequest::CallError(const std::string& errdesc) {
   utils::CallV8Function(js_object(), "onError", 1, &errobj);
 }
 
-// static
 v8::Handle<v8::Value> HttpRequest::Construct(const v8::Arguments& args) {
-  v8::Handle<v8::Object> self = args.This();
+  v8::Handle<v8::Object> self = js_object();
 
   // args[N] will return v8::Undefined if N is out of range.
   v8::Handle<v8::Value> value = args[0];
@@ -569,9 +568,6 @@ bool Http::OnNativeTimeout() {
   return (messenger_->Update() > 0);
 }
 
-static v8::Handle<v8::Value> dispatch_HttpGet(const v8::Arguments& args);
-static v8::Handle<v8::Value> dispatch_HttpPost(const v8::Arguments& args);
-
 // static
 bool Http::InitializeTemplate(v8::Handle<v8::FunctionTemplate> t) {
   v8::Handle<v8::ObjectTemplate> object_t = t->InstanceTemplate();
@@ -579,32 +575,9 @@ bool Http::InitializeTemplate(v8::Handle<v8::FunctionTemplate> t) {
   object_t->Set(v8::String::NewSymbol("Request"),
                 HttpRequest::constructor_template(),
                 v8::ReadOnly);
-  object_t->Set(v8::String::NewSymbol("GET"),
-                v8::FunctionTemplate::New(dispatch_HttpGet),
-                v8::ReadOnly);
-  object_t->Set(v8::String::NewSymbol("POST"),
-                v8::FunctionTemplate::New(dispatch_HttpPost),
-                v8::ReadOnly);
 
-  return true;
-}
-
-bool Http::HttpGet(HttpRequest* request) {
-  if (!timeout_)
-    timeout_ = entd_->SetNativeTimeout(dispatch_OnNativeTimeout, this, 0);
-
-  if (!messenger_->HttpGet(request))
-    return false;
-
-  return true;
-}
-
-bool Http::HttpPost(HttpRequest* request) {
-  if (!timeout_)
-    timeout_ = entd_->SetNativeTimeout(dispatch_OnNativeTimeout, this, 0);
-
-  if (!messenger_->HttpPost(request))
-    return false;
+  BindMethod(object_t, &Http::HttpGet, "GET");
+  BindMethod(object_t, &Http::HttpPost, "POST");
 
   return true;
 }
@@ -613,9 +586,9 @@ bool Http::HttpPost(HttpRequest* request) {
 // as GetUrl().  There are issues around whether or not the params appear
 // in the URL (they should in a GET, but not in a POST) which need to be worked
 // out.
-static bool ComputeRequestUrl(Entd* entd,
-                              const HttpRequest& request,
-                              std::string* url) {
+bool Http::ComputeRequestUrl(Entd* entd,
+                             const HttpRequest& request,
+                             std::string* url) {
   std::string hostname = request.GetString("hostname");
   if (!entd->CheckHostname(hostname)) {
     utils::ThrowV8Exception("Invalid hostname");
@@ -646,18 +619,14 @@ static bool ComputeRequestUrl(Entd* entd,
   return true;
 }
 
-static v8::Handle<v8::Value> dispatch_HttpGet(const v8::Arguments& args) {
-  Http* http = Scriptable<Http>::UnwrapOrThrow(args.This(), "this");
-  if (!http)
-    return v8::Undefined();
-
+v8::Handle<v8::Value> Http::HttpGet(const v8::Arguments& args) {
   HttpRequest* request =
       Scriptable<HttpRequest>::UnwrapOrThrow(args[0], "first argument");
   if (!request)
     return v8::Undefined();
 
   std::string url;
-  if (!ComputeRequestUrl(http->GetEntd(), *request, &url))
+  if (!ComputeRequestUrl(GetEntd(), *request, &url))
     return v8::Undefined();
 
   // Set params string.
@@ -676,14 +645,16 @@ static v8::Handle<v8::Value> dispatch_HttpGet(const v8::Arguments& args) {
   request->js_object()->Set(v8::String::NewSymbol("url"),
                             v8::String::New(url.c_str()));
 
-  // Start an async GET.
-  if (!http->HttpGet(request))
+  if (!timeout_)
+    timeout_ = entd_->SetNativeTimeout(dispatch_OnNativeTimeout, this, 0);
+
+  if (!messenger_->HttpGet(request))
     return v8::False();
 
   return v8::True();
 }
 
-static v8::Handle<v8::Value> dispatch_HttpPost(const v8::Arguments& args) {
+v8::Handle<v8::Value> Http::HttpPost(const v8::Arguments& args) {
   Http* http = Scriptable<Http>::UnwrapOrThrow(args.This(), "this");
   if (!http)
     return v8::Undefined();
@@ -701,8 +672,10 @@ static v8::Handle<v8::Value> dispatch_HttpPost(const v8::Arguments& args) {
   request->js_object()->Set(v8::String::NewSymbol("url"),
                             v8::String::New(url.c_str()));
 
-  // Sets up request from url
-  if (!http->HttpPost(request))
+  if (!timeout_)
+    timeout_ = entd_->SetNativeTimeout(dispatch_OnNativeTimeout, this, 0);
+
+  if (!messenger_->HttpPost(request))
     return v8::False();
 
   return v8::True();

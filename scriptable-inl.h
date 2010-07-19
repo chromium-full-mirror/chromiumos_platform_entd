@@ -41,6 +41,17 @@ bool Scriptable<T>::InitializeTemplate(
 
 // static
 template<typename T>
+void Scriptable<T>::BindMethod(v8::Handle<v8::Template> tpl,
+                               Scriptable<T>::ScriptableMethod callback,
+                               const char *name) {
+  Dispatcher* dispatcher = new Dispatcher(callback);
+  tpl->Set(v8::String::NewSymbol(name),
+           v8::FunctionTemplate::New(Dispatcher::Callback,
+                                     v8::External::Wrap(dispatcher)));
+}
+
+// static
+template<typename T>
 v8::Handle<v8::FunctionTemplate> Scriptable<T>::constructor_template() {
   // There's no way to know that we're done with this template.  At
   // any point someone could create a new instance of this class and
@@ -94,7 +105,7 @@ v8::Handle<v8::Value> Scriptable<T>::BaseConstruct(const v8::Arguments& args) {
     ThrowException("Unexpected error initializing: " + T::class_name());
   }
 
-  return T::Construct(args);
+  return native_object->Construct(args);
 }
 
 // static
