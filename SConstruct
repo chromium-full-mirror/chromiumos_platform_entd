@@ -44,6 +44,7 @@ def build():
         "http.cc",
         "main.cc",
         "pkcs11.cc",
+        "crypto_pkcs11.cc",
         "syslog.cc",
         "utils.cc",)]
       )

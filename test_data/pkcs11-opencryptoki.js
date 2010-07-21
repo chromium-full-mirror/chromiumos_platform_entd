@@ -8,12 +8,9 @@ function onLoad(manifest) {
   var slot1 = new entd.pkcs11.SlotObject("slot1");
   // println("slot1: " + slot1.toString());
   slot1.generateKeyPair("1234");
-  var subj1 = "/C=US/ST=California/L=Mountain View/O=Google Inc"
-"/OU=ChromeOS/CN=user.onex.corp.google.com"
-"/emailAddress=user@google.com";
-  var csr1 = new slot1.CSR(subj1);
-  //println("CSR1:\n" + csr1.toString());
-  //println("Public Key:\n" + slot1.publicKey.toString());
+  var subj1 = "/C=US/ST=California/L=Mountain View/O=Google Inc/" +
+  "OU=ChromeOS/CN=stevenjb.onex.corp.google.com/" +
+  "emailAddress=stevenjb@google.com";
 
   var cert_str = readFromFile("test_data/cert_test.pem");
   var cert1 = new entd.pkcs11.Certificate(cert_str);
@@ -21,6 +18,14 @@ function onLoad(manifest) {
   slot1.addCertificate(cert1);
   // println("slot1: " + slot1.toString());
 
-  println("Slots:");
-  println(JSON.stringify(entd.pkcs11.slots));
+  slot1 = entd.pkcs11.slots['slot1'];
+  if (slot1.label != "slot1" ||
+      slot1.keyIdentifier != "1234" ||
+      slot1.certificate.subject != subj1) {
+    return println("Unexpected value for entd.pkcs11.slots.slot1: " +
+                   JSON.stringify(slot1));
+  }
+
+  println("LOOKS OK");
+
 }

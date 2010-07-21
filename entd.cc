@@ -17,6 +17,7 @@
 #include "entd/flimflam.h"
 #include "entd/http.h"
 #include "entd/pkcs11.h"
+#include "entd/crypto_pkcs11.h"
 #include "entd/scriptable.h"
 #include "entd/syslog.h"
 #include "entd/utils.h"
@@ -402,7 +403,15 @@ v8::Handle<v8::Object> Entd::ConstructEntd() {
   entd->Set(v8::String::NewSymbol("callbackServer"),
             callback_server_->obj(), v8::ReadOnly);
 
-  // Build the pkcs11 object
+  // Build the entd.crypto object.
+  v8::Handle<v8::Object> crypto_obj = v8::Object::New();
+  entd->Set(v8::String::NewSymbol("crypto"), crypto_obj);
+
+  // Hook up the new entd.crypto.Pkcs11 constructor
+  crypto_obj->Set(v8::String::NewSymbol("Pkcs11"),
+                  crypto::Pkcs11::constructor_template()->GetFunction());
+
+  // Build the (soon-to-be-deprecated) entd.pkcs11 object
   pkcs11_.reset(new Pkcs11());
   if (!pkcs11_->Initialize()) {
     LOG(ERROR) << "Error initializing entd.pkcs11";

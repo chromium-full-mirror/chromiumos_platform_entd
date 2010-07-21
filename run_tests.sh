@@ -10,15 +10,8 @@
 USERNAME="user@google.com"
 ALLOW_DIRTY_EXIT=1
 ALLOW_FILE_IO=1
-ENABLE_OPENCRYPTOKI=0
-grep "Chromium OS" /etc/lsb-release
-if [ $? == 0 ]; then
-  CHROMEOS=1
-  ENTD="/usr/sbin/entd"
-else
-  CHROMEOS=0
-  ENTD="../../scripts/run_32bit.sh out/i686-pc-linux-gnu/entd --"
-fi
+ENABLE_OPENCRYPTOKI="1"
+ENTD="../../scripts/run_32bit.sh out/i686-pc-linux-gnu/entd --"
 
 # If non-zero, print test output on failure
 VERBOSE=1
@@ -101,74 +94,103 @@ function greptest {
   fi
 }
 
-# Basic tests.
-greptest "hello-world.js" 'hello world'
-greptest "bad-onload.js" 'throw "expected exception"' '' 1
-greptest "print-username.js" "username: $USERNAME"
-greptest "throw-exception.js" 'throw "goodbye world"' '' 1
-greptest "syslog.js" "entd.syslog.error"
-greptest "simple-hostname.js" "LOOKS OK"
-greptest "simple-onunload.js" "LOOKS OK"
+function basic_tests() {
+  greptest "hello-world.js" 'hello world'
+  greptest "bad-onload.js" 'throw "expected exception"' '' 1
+  greptest "print-username.js" "username: $USERNAME"
+  greptest "throw-exception.js" 'throw "goodbye world"' '' 1
+  greptest "syslog.js" "entd.syslog.error"
+  greptest "simple-hostname.js" "LOOKS OK"
+  greptest "simple-onunload.js" "LOOKS OK"
 
-# Basic tests with longer command lines.
-greptest "--policy=test_data/print-manifest.js \
-  --manifest=test_data/simple-manifest.json" '{"foo":1,"bar":2}' \
-  "print-manifest.js"
-greptest "--policy=test_data/simple-utility.js \
-  --utility=test_data/simple-utility.js" 'utility is set' "simple-utility.js"
-greptest "--extension-path=test_data/Extensions" '{"foo":1,"bar":2}'
+  greptest "--policy=test_data/print-manifest.js \
+    --manifest=test_data/simple-manifest.json" '{"foo":1,"bar":2}' \
+    "print-manifest.js"
+  greptest "--policy=test_data/simple-utility.js \
+    --utility=test_data/simple-utility.js" 'utility is set' "simple-utility.js"
+  greptest "--extension-path=test_data/Extensions" '{"foo":1,"bar":2}'
+}
 
-# Http tests.
-greptest "http-good.js" "HTTP COMPLETE"
-greptest "http-badcall.js" "LOOKS OK"
-greptest "http-badhost.js" "HTTP ERROR: Couldn't resolve"
-greptest "http-badport.js" "LOOKS OK"
-greptest "http-evilhost.js" "Invalid hostname" '' 1
-greptest "http-badrequest.js" "LOOKS OK"
-greptest "http-leak.js" "LOOKS OK"
-greptest "http-redirect.js" "HTTP COMPLETE"
+function http_tests() {
+  greptest "http-good.js" "HTTP COMPLETE"
+  greptest "http-badcall.js" "LOOKS OK"
+  greptest "http-badhost.js" "HTTP ERROR: Couldn't resolve"
+  greptest "http-badport.js" "LOOKS OK"
+  greptest "http-evilhost.js" "Invalid hostname" '' 1
+  greptest "http-badrequest.js" "LOOKS OK"
+  greptest "http-leak.js" "LOOKS OK"
+  greptest "http-redirect.js" "HTTP COMPLETE"
+}
 
-# Pkcs11 tests.
-greptest "pkcs11-csr.js" "LOOKS OK"
-greptest "pkcs11-cert.js" "LOOKS OK"
-greptest "pkcs11-remove.js" "LOOKS OK"
-greptest "pkcs11-ready.js" "LOOKS OK"
+function pkcs11_tests() {
+  # First test expects pkcs11 won't be ready.
+  sudo killall pkcsslotd
 
-ENABLE_OPENCRYPTOKI=1
-
-if [ "$CHROMEOS" == 1 ]; then
-  # These tests requires a properly configured opencryptoki environment,
-  # so chromeos only.
-  greptest 'pkcs11-opencryptoki.js '\
-'"slot1":{"label":"slot1","keyIdentifier":"1234",'\
-'"certificate":{'\
-'"subject":"/C=US/ST=California/L=Mountain View/O=Google Inc/OU=ChromeOS' \
-"pkcs11-opencryptoki.js"
-  greptest 'pkcs11-opencryptoki-delete.js '\
-'Slots.slot1: undefined' \
-"pkcs11-opencryptoki-delete.js"
-else
-  # This test assumes that opencryotoki is *not* configured.
   greptest "pkcs11-notready.js" "LOOKS OK"
-fi
 
-ENABLE_OPENCRYPTOKI=0
+  # The remaining tests expect it to be ready, and to have a SO pin of 111111,
+  # and a user pin of 000000.  This will be true if the crypto_pkcs11 tests
+  # pass.
+  sudo pkcsslotd
 
-# Slightly longer running tests.
-greptest "settimeout.js" "string timeout function timeout"
-greptest "cleartimeout.js" "LOOKS OK"
+  greptest "pkcs11-csr.js" "LOOKS OK"
+  greptest "pkcs11-cert.js" "LOOKS OK"
+  greptest "pkcs11-remove.js" "LOOKS OK"
+  greptest "pkcs11-ready.js" "LOOKS OK"
+  greptest 'pkcs11-opencryptoki.js' "LOOKS OK"
+  greptest 'pkcs11-opencryptoki-delete.js' "LOOKS OK"
+}
 
-greptest "simple-shutdown.js" "LOOKS OK"
+function crypto_pkcs11_tests() {
+  # First test expects pkcs11 won't be ready.
+  sudo killall pkcsslotd
 
-# Fire off this bg task to make an http request
-(sleep 2; \
-  curl --data-binary '{"function": "stop"}' \
-  -H "Content-Type: application/json; charset=UTF-8" \
-  -H "X-Entd-Request: test-magic" \
-  localhost:5200/dispatch -so /dev/null) &
+  greptest "crypto-pkcs11-notready.js" "LOOKS OK"
 
-# Then start up the callback server before the timeout fires.
-greptest "simple-callback.js" "Stopping callback server"
+  # The remaining tests expect it to be ready, and to start off totally
+  # unitialized.
+  sudo rm -rf "/var/lib/opencryptoki/tpm/$USER"
+  (sleep 1; sudo pkcsslotd) &
+
+  # This one specifically expects it won't be ready right away, but will
+  # become ready.
+  greptest "crypto-pkcs11-waitready.js" "LOOKS OK"
+
+  greptest "crypto-pkcs11-ctors.js" "LOOKS OK"
+  greptest "crypto-pkcs11-slots.js" "LOOKS OK"
+  greptest "crypto-pkcs11-inittoken.js" "LOOKS OK"
+
+  # The old-skool pkcs11 tests rely on the inittoken test to set the SO and
+  # user PINs correctly.
+}
+
+function slow_tests() {
+  # Slightly longer running tests.
+  greptest "settimeout.js" "string timeout function timeout"
+  greptest "cleartimeout.js" "LOOKS OK"
+
+  greptest "simple-shutdown.js" "LOOKS OK"
+
+  # Fire off this bg task to make an http request
+  (sleep 2; \
+    curl --data-binary '{"function": "stop"}' \
+    -H "Content-Type: application/json; charset=UTF-8" \
+    -H "X-Entd-Request: test-magic" \
+    localhost:5200/dispatch -so /dev/null) &
+
+  # Then start up the callback server before the timeout fires.
+  greptest "simple-callback.js" "Stopping callback server"
+}
+
+function all_tests() {
+  basic_tests
+  http_tests
+  crypto_pkcs11_tests
+  pkcs11_tests
+  slow_tests
+}
+
+all_tests
 
 echo
 echo "Tests completed: $TESTS"

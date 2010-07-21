@@ -216,6 +216,11 @@ class Scriptable {
   static T* UnwrapOrThrow(const v8::Handle<v8::Value>& value,
                           const std::string& desc);
 
+  // Same as UnwrapOrThrow, except log a warning rather than throw an
+  // exception.
+  static T* UnwrapOrWarn(const v8::Handle<v8::Value>& value,
+                        const std::string& desc);
+
   // Return true if the given JavaScript value represents an instance of
   // this class.
   static bool IsInstance(const v8::Handle<v8::Value>& value) {

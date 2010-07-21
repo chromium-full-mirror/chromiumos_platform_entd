@@ -4,6 +4,8 @@
 
 entd.onLoad =
 function onLoad(manifest) {
+  entd.pkcs11.setUserPin("111111");
+
   var slot = new entd.pkcs11.SlotObject("slot1");
   if (!entd.pkcs11.slots["slot1"])
     throw "Missing entd.pkcs11.slots['slot1']";

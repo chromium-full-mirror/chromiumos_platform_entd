@@ -24,8 +24,10 @@
 
 entd.onLoad =
 function onLoad(manifest) {
+  entd.pkcs11.setUserPin("111111");
+
   var slot = new entd.pkcs11.SlotObject("test-label");
-  slot.generateKeyPair("key");
+  slot.generateKeyPair(3, "label");
   var csr = new slot.CSR("/C=US/ST=California/L=Mountain View/O=Google Inc" +
                          "/OU=ChromeOS/CN=user.onex.corp.google.com" +
                          "/emailAddress=user@google.com");

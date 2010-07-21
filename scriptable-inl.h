@@ -83,14 +83,15 @@ v8::Handle<v8::FunctionTemplate> Scriptable<T>::constructor_template() {
     cached_template->SetClassName(v8::String::New(T::class_name().c_str()));
     cached_template->InstanceTemplate()->SetInternalFieldCount(1);
 
-    v8::Handle<v8::Function> func = cached_template->GetFunction();
-    func->SetAccessor(v8::String::New("instanceCount"),
-                      Scriptable<T>::GetInstanceCount);
-
     if (!T::InitializeTemplate(cached_template)) {
       LOG(ERROR) << "Error setting up template for " << T::class_name();
       cached_template.Dispose();
     }
+
+    v8::Handle<v8::Function> func = cached_template->GetFunction();
+    func->SetAccessor(v8::String::New("instanceCount"),
+                      Scriptable<T>::GetInstanceCount);
+
   }
 
   return cached_template;
@@ -162,6 +163,22 @@ T* Scriptable<T>::UnwrapOrThrow(const v8::Handle<v8::Value>& value,
       msg.append(": " + desc);
 
     ThrowException(msg);
+  }
+
+  return rv;
+}
+
+// static
+template<typename T>
+T* Scriptable<T>::UnwrapOrWarn(const v8::Handle<v8::Value>& value,
+                               const std::string& desc) {
+  T* rv = Unwrap(value);
+  if (!rv) {
+    std::string msg("Expected object of type '" + T::class_name() + "'");
+    if (!desc.empty())
+      msg.append(": " + desc);
+
+    LOG(WARNING) << msg;
   }
 
   return rv;
