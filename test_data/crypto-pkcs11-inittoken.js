@@ -63,11 +63,13 @@ entd.onLoad = function () {
 
   session.login(Session.CKU_SO, Token.DEFAULT_SO_PIN);
   session.setPin(Token.DEFAULT_SO_PIN, TEST_SO_PIN);
-  session.logout();
 
   token.refresh();
   if (token.flags & Token.CKF_SO_PIN_TO_BE_CHANGED)
     return println("Expected SO pin would be ok after setPin()");
+
+  session.close();
+  session = token.openSession(Token.CKF_RW_SESSION);
 
   session.login(Session.CKU_USER, Token.DEFAULT_USER_PIN);
   session.setPin(Token.DEFAULT_USER_PIN, TEST_USER_PIN);

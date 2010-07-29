@@ -42,6 +42,7 @@ class Pkcs11 : public Scriptable<Pkcs11> {
     v8::Handle<v8::Value> InitToken(const v8::Arguments& args);
     v8::Handle<v8::Value> InitPin(const v8::Arguments& args);
     v8::Handle<v8::Value> OpenSession(const v8::Arguments& args);
+    v8::Handle<v8::Value> CloseAllSessions(const v8::Arguments& args);
 
     // Invoke the 'bool Refresh()' method from script.
     v8::Handle<v8::Value> CallRefresh(const v8::Arguments& args);
@@ -120,12 +121,21 @@ class Pkcs11 : public Scriptable<Pkcs11> {
       return "entd.crypto.Pkcs11.Session";
     };
 
+    Session() : session_handle_(0) {}
+    ~Session() {
+      if (session_handle_)
+        C_CloseSession(session_handle_);
+    }
+
     bool Initialize(CK_SLOT_ID slot_id, CK_SESSION_HANDLE session_handle);
     static bool InitializeTemplate(v8::Handle<v8::FunctionTemplate> ctor_t);
 
     v8::Handle<v8::Value> Construct(const v8::Arguments& args) {
       return Pkcs11::ThrowNoScriptableConstructor(class_name());
     }
+
+    // Call C_GetSessionInfo(), and copy the results to the js_object().
+    bool Refresh();
 
     // Stubs for PKCS#11 C_* functions of the same name.
     v8::Handle<v8::Value> Close(const v8::Arguments& args);
@@ -135,6 +145,9 @@ class Pkcs11 : public Scriptable<Pkcs11> {
     v8::Handle<v8::Value> SetPin(const v8::Arguments& args);
     v8::Handle<v8::Value> FindObjects(const v8::Arguments& args);
     v8::Handle<v8::Value> CreateObject(const v8::Arguments& args);
+
+    // Invoke the 'bool Refresh()' method from script.
+    v8::Handle<v8::Value> CallRefresh(const v8::Arguments& args);
 
    private:
     CK_SLOT_ID slot_id_;

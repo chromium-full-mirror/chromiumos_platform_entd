@@ -72,8 +72,6 @@ bool Pkcs11::Slots::Initialize() {
 // static
 bool Pkcs11::Slots::InitializeTemplate(
     v8::Handle<v8::FunctionTemplate> ctor_t) {
-  LOG(INFO) << "Initialize slots template";
-
   v8::Handle<v8::ObjectTemplate> instance_t = ctor_t->InstanceTemplate();
 
   instance_t->SetAccessor(v8::String::New("length"),
@@ -105,7 +103,7 @@ v8::Handle<v8::Value> Pkcs11::Slots::GetIndexedProperty(
     return v8::Undefined();
 
   if (index >= num_slots)
-    return ThrowException("Index out of range");
+    return v8::Undefined();
 
   SlotMap::iterator it = slots->slot_map_.find(index);
   if (it == slots->slot_map_.end()) {
@@ -242,9 +240,11 @@ bool Pkcs11::Slot::Refresh() {
   SET_CK_ULONG(self, slot_info, flags);
 
   if (slot_info.flags & CKF_TOKEN_PRESENT) {
-    if (!token_.Copy(Pkcs11::Token::New()) || !token_->Initialize(slot_id_)) {
-      LOG(ERROR) << "Error creating Pkcs11::Token instance";
-      return false;
+    if (token_.IsEmpty()) {
+      if (!token_.Copy(Pkcs11::Token::New()) || !token_->Initialize(slot_id_)) {
+        LOG(ERROR) << "Error creating Pkcs11::Token instance";
+        return false;
+      }
     }
   } else {
     token_.set_native_ptr(NULL);
@@ -268,6 +268,10 @@ v8::Handle<v8::Value> Pkcs11::Slot::GetToken(v8::Local<v8::String> property,
 
 bool Pkcs11::Token::Initialize(CK_SLOT_ID slot_id) {
   slot_id_ = slot_id;
+
+  js_object()->Set(v8::String::NewSymbol("slotId"),
+                   v8::Integer::NewFromUnsigned(slot_id_));
+
   return Refresh();
 }
 
@@ -308,6 +312,7 @@ bool Pkcs11::Token::InitializeTemplate(
   BindMethod(instance_t, &Pkcs11::Token::CallRefresh, "refresh");
   BindMethod(instance_t, &Pkcs11::Token::InitToken, "initToken");
   BindMethod(instance_t, &Pkcs11::Token::OpenSession, "openSession");
+  BindMethod(instance_t, &Pkcs11::Token::CloseAllSessions, "closeAllSessions");
 
   return true;
 }
@@ -373,7 +378,7 @@ v8::Handle<v8::Value> Pkcs11::Token::OpenSession(const v8::Arguments& args) {
 
   uint32_t session_flags = args[0]->Uint32Value();
 
-  CK_SESSION_HANDLE session_handle;
+  CK_SESSION_HANDLE session_handle = 0;
 
   if (!OkOrThrow(C_OpenSession(slot_id_, session_flags | CKF_SERIAL_SESSION,
                                NULL, NULL, &session_handle))) {
@@ -387,6 +392,12 @@ v8::Handle<v8::Value> Pkcs11::Token::OpenSession(const v8::Arguments& args) {
   return session->js_object();
 }
 
+v8::Handle<v8::Value> Pkcs11::Token::CloseAllSessions(
+    const v8::Arguments& args) {
+  OkOrThrow(C_CloseAllSessions(slot_id_));
+  return v8::Undefined();
+}
+
 v8::Handle<v8::Value> Pkcs11::Token::CallRefresh(const v8::Arguments& args) {
   if (!Refresh())
     return ThrowException("Unexpected error");
@@ -398,18 +409,33 @@ bool Pkcs11::Session::Initialize(CK_SLOT_ID slot_id,
                                  CK_SESSION_HANDLE session_handle) {
   slot_id_ = slot_id;
   session_handle_ = session_handle;
-  return true;
+
+  return Refresh();
 }
 
 // static
 bool Pkcs11::Session::InitializeTemplate(
     v8::Handle<v8::FunctionTemplate> ctor_t) {
+
+  // Session states...
+  SET_CK_CONST(ctor_t, CKU_SO);
+  SET_CK_CONST(ctor_t, CKS_RO_PUBLIC_SESSION);
+  SET_CK_CONST(ctor_t, CKS_RO_USER_FUNCTIONS);
+  SET_CK_CONST(ctor_t, CKS_RW_PUBLIC_SESSION);
+  SET_CK_CONST(ctor_t, CKS_RW_USER_FUNCTIONS);
+  SET_CK_CONST(ctor_t, CKS_RW_SO_FUNCTIONS);
+
+  // Session flags...
+  SET_CK_CONST(ctor_t, CKF_RW_SESSION);
+  SET_CK_CONST(ctor_t, CKF_SERIAL_SESSION);
+
   // User types for login()...
   SET_CK_CONST(ctor_t, CKU_SO);
   SET_CK_CONST(ctor_t, CKU_USER);
 
   v8::Handle<v8::ObjectTemplate> instance_t = ctor_t->InstanceTemplate();
 
+  BindMethod(instance_t, &Pkcs11::Session::CallRefresh, "refresh");
   BindMethod(instance_t, &Pkcs11::Session::Close,   "close");
   BindMethod(instance_t, &Pkcs11::Session::Login,   "login");
   BindMethod(instance_t, &Pkcs11::Session::Logout,  "logout");
@@ -422,13 +448,37 @@ bool Pkcs11::Session::InitializeTemplate(
   return true;
 }
 
+bool Pkcs11::Session::Refresh() {
+  CK_SESSION_INFO session_info;
+  CK_RV rv = C_GetSessionInfo(session_handle_, &session_info);
+  if (!OkOrWarn(rv))
+    return false;
+
+  v8::Handle<v8::Object> self = js_object();
+  if (self.IsEmpty())
+    return false;
+
+  SET_CK_ULONG(self, session_info, slotID);
+  SET_CK_ULONG(self, session_info, state);
+  SET_CK_ULONG(self, session_info, flags);
+
+  return true;
+}
+
+v8::Handle<v8::Value> Pkcs11::Session::CallRefresh(const v8::Arguments& args) {
+  if (!Refresh())
+    return ThrowException("Unexpected error");
+
+  return v8::Undefined();
+}
+
 v8::Handle<v8::Value> Pkcs11::Session::InitPin(const v8::Arguments& args) {
   if (args.Length() < 1)
     return ThrowException("Missing required parameter: pin");
 
   v8::String::AsciiValue ascii_pin(args[0]);
 
-  OkOrThrow(C_InitPIN(slot_id_,
+  OkOrThrow(C_InitPIN(session_handle_,
                       reinterpret_cast<CK_CHAR_PTR>(*ascii_pin),
                       ascii_pin.length()));
 
@@ -436,7 +486,11 @@ v8::Handle<v8::Value> Pkcs11::Session::InitPin(const v8::Arguments& args) {
 }
 
 v8::Handle<v8::Value> Pkcs11::Session::Close(const v8::Arguments& args) {
+  if (!session_handle_)
+    return ThrowException("Not open");
+
   OkOrThrow(C_CloseSession(session_handle_));
+  session_handle_ = 0;
   return v8::Undefined();
 }
 
@@ -456,6 +510,7 @@ v8::Handle<v8::Value> Pkcs11::Session::Login(const v8::Arguments& args) {
   CK_RV rv = C_Login(session_handle_, user_type,
                      reinterpret_cast<CK_CHAR_PTR>(*ascii_pin),
                      ascii_pin.length());
+
   if (rv == CKR_PIN_INCORRECT)
     return v8::False();
 
@@ -542,6 +597,93 @@ bool Pkcs11::InitializeTemplate(v8::Handle<v8::FunctionTemplate> ctor_t) {
               Pkcs11::Token::constructor_template());
   ctor_t->Set(v8::String::NewSymbol("Session"),
               Pkcs11::Session::constructor_template());
+
+  // These are in the order they appear in opencryptoki/pkcs11types.h
+  SET_CK_CONST(ctor_t, CKR_OK);
+  SET_CK_CONST(ctor_t, CKR_CANCEL);
+  SET_CK_CONST(ctor_t, CKR_HOST_MEMORY);
+  SET_CK_CONST(ctor_t, CKR_SLOT_ID_INVALID);
+  SET_CK_CONST(ctor_t, CKR_GENERAL_ERROR);
+  SET_CK_CONST(ctor_t, CKR_FUNCTION_FAILED);
+  SET_CK_CONST(ctor_t, CKR_ARGUMENTS_BAD);
+  SET_CK_CONST(ctor_t, CKR_NO_EVENT);
+  SET_CK_CONST(ctor_t, CKR_NEED_TO_CREATE_THREADS);
+  SET_CK_CONST(ctor_t, CKR_CANT_LOCK);
+  SET_CK_CONST(ctor_t, CKR_ATTRIBUTE_READ_ONLY);
+  SET_CK_CONST(ctor_t, CKR_ATTRIBUTE_SENSITIVE);
+  SET_CK_CONST(ctor_t, CKR_ATTRIBUTE_TYPE_INVALID);
+  SET_CK_CONST(ctor_t, CKR_ATTRIBUTE_VALUE_INVALID);
+  SET_CK_CONST(ctor_t, CKR_DATA_INVALID);
+  SET_CK_CONST(ctor_t, CKR_DATA_LEN_RANGE);
+  SET_CK_CONST(ctor_t, CKR_DEVICE_ERROR);
+  SET_CK_CONST(ctor_t, CKR_DEVICE_MEMORY);
+  SET_CK_CONST(ctor_t, CKR_DEVICE_REMOVED);
+  SET_CK_CONST(ctor_t, CKR_ENCRYPTED_DATA_INVALID);
+  SET_CK_CONST(ctor_t, CKR_ENCRYPTED_DATA_LEN_RANGE);
+  SET_CK_CONST(ctor_t, CKR_FUNCTION_CANCELED);
+  SET_CK_CONST(ctor_t, CKR_FUNCTION_NOT_PARALLEL);
+  SET_CK_CONST(ctor_t, CKR_FUNCTION_NOT_SUPPORTED);
+  SET_CK_CONST(ctor_t, CKR_KEY_HANDLE_INVALID);
+  SET_CK_CONST(ctor_t, CKR_KEY_SIZE_RANGE);
+  SET_CK_CONST(ctor_t, CKR_KEY_TYPE_INCONSISTENT);
+  SET_CK_CONST(ctor_t, CKR_KEY_NOT_NEEDED);
+  SET_CK_CONST(ctor_t, CKR_KEY_CHANGED);
+  SET_CK_CONST(ctor_t, CKR_KEY_NEEDED);
+  SET_CK_CONST(ctor_t, CKR_KEY_INDIGESTIBLE);
+  SET_CK_CONST(ctor_t, CKR_KEY_FUNCTION_NOT_PERMITTED);
+  SET_CK_CONST(ctor_t, CKR_KEY_NOT_WRAPPABLE);
+  SET_CK_CONST(ctor_t, CKR_KEY_UNEXTRACTABLE);
+  SET_CK_CONST(ctor_t, CKR_MECHANISM_INVALID);
+  SET_CK_CONST(ctor_t, CKR_MECHANISM_PARAM_INVALID);
+  SET_CK_CONST(ctor_t, CKR_OBJECT_HANDLE_INVALID);
+  SET_CK_CONST(ctor_t, CKR_OPERATION_ACTIVE);
+  SET_CK_CONST(ctor_t, CKR_OPERATION_NOT_INITIALIZED);
+  SET_CK_CONST(ctor_t, CKR_PIN_INCORRECT);
+  SET_CK_CONST(ctor_t, CKR_PIN_INVALID);
+  SET_CK_CONST(ctor_t, CKR_PIN_LEN_RANGE);
+  SET_CK_CONST(ctor_t, CKR_PIN_EXPIRED);
+  SET_CK_CONST(ctor_t, CKR_PIN_LOCKED);
+  SET_CK_CONST(ctor_t, CKR_SESSION_CLOSED);
+  SET_CK_CONST(ctor_t, CKR_SESSION_COUNT);
+  SET_CK_CONST(ctor_t, CKR_SESSION_HANDLE_INVALID);
+  SET_CK_CONST(ctor_t, CKR_SESSION_PARALLEL_NOT_SUPPORTED);
+  SET_CK_CONST(ctor_t, CKR_SESSION_READ_ONLY);
+  SET_CK_CONST(ctor_t, CKR_SESSION_EXISTS);
+  SET_CK_CONST(ctor_t, CKR_SESSION_READ_ONLY_EXISTS);
+  SET_CK_CONST(ctor_t, CKR_SESSION_READ_WRITE_SO_EXISTS);
+  SET_CK_CONST(ctor_t, CKR_SIGNATURE_INVALID);
+  SET_CK_CONST(ctor_t, CKR_SIGNATURE_LEN_RANGE);
+  SET_CK_CONST(ctor_t, CKR_TEMPLATE_INCOMPLETE);
+  SET_CK_CONST(ctor_t, CKR_TEMPLATE_INCONSISTENT);
+  SET_CK_CONST(ctor_t, CKR_TOKEN_NOT_PRESENT);
+  SET_CK_CONST(ctor_t, CKR_TOKEN_NOT_RECOGNIZED);
+  SET_CK_CONST(ctor_t, CKR_TOKEN_WRITE_PROTECTED);
+  SET_CK_CONST(ctor_t, CKR_UNWRAPPING_KEY_HANDLE_INVALID);
+  SET_CK_CONST(ctor_t, CKR_UNWRAPPING_KEY_SIZE_RANGE);
+  SET_CK_CONST(ctor_t, CKR_UNWRAPPING_KEY_TYPE_INCONSISTENT);
+  SET_CK_CONST(ctor_t, CKR_USER_ALREADY_LOGGED_IN);
+  SET_CK_CONST(ctor_t, CKR_USER_NOT_LOGGED_IN);
+  SET_CK_CONST(ctor_t, CKR_USER_PIN_NOT_INITIALIZED);
+  SET_CK_CONST(ctor_t, CKR_USER_TYPE_INVALID);
+  SET_CK_CONST(ctor_t, CKR_USER_ANOTHER_ALREADY_LOGGED_IN);
+  SET_CK_CONST(ctor_t, CKR_USER_TOO_MANY_TYPES);
+  SET_CK_CONST(ctor_t, CKR_WRAPPED_KEY_INVALID);
+  SET_CK_CONST(ctor_t, CKR_WRAPPED_KEY_LEN_RANGE);
+  SET_CK_CONST(ctor_t, CKR_WRAPPING_KEY_HANDLE_INVALID);
+  SET_CK_CONST(ctor_t, CKR_WRAPPING_KEY_SIZE_RANGE);
+  SET_CK_CONST(ctor_t, CKR_WRAPPING_KEY_TYPE_INCONSISTENT);
+  SET_CK_CONST(ctor_t, CKR_RANDOM_SEED_NOT_SUPPORTED);
+  SET_CK_CONST(ctor_t, CKR_RANDOM_NO_RNG);
+  SET_CK_CONST(ctor_t, CKR_DOMAIN_PARAMS_INVALID);
+  SET_CK_CONST(ctor_t, CKR_BUFFER_TOO_SMALL);
+  SET_CK_CONST(ctor_t, CKR_SAVED_STATE_INVALID);
+  SET_CK_CONST(ctor_t, CKR_INFORMATION_SENSITIVE);
+  SET_CK_CONST(ctor_t, CKR_STATE_UNSAVEABLE);
+  SET_CK_CONST(ctor_t, CKR_CRYPTOKI_NOT_INITIALIZED);
+  SET_CK_CONST(ctor_t, CKR_CRYPTOKI_ALREADY_INITIALIZED);
+  SET_CK_CONST(ctor_t, CKR_MUTEX_BAD);
+  SET_CK_CONST(ctor_t, CKR_MUTEX_NOT_LOCKED);
+  SET_CK_CONST(ctor_t, CKR_VENDOR_DEFINED);
 
   return true;
 }
