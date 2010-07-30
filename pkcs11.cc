@@ -289,17 +289,13 @@ class CertificateHandlerOpenSsl : public CertificateHandler {
     // Expand the filename ($USERNAME -> user)
     std::string rand_file_name_exp = utils::ExpandFilePath(rand_file_name);
 
-    // First try to load the filename returned.
-    // If that fails (e.g. it doesn't exist), use /dev/urandom
-    if (RAND_load_file(rand_file_name_exp.c_str(), -1) == 0) {
-      const char* urandom_filename = "/dev/urandom";
-      LOG(WARNING) << "Unable to load RAND file: " << rand_file_name_exp
-                   << " trying " << urandom_filename;
-      if (RAND_load_file(urandom_filename, -1) == 0) {
-        LOG(ERROR) << "Unable to load " << urandom_filename;
-        return false;
-      }
-    }
+    // Try to load the filename returned.  The RAND file is a nice way
+    // of stirring the RNG, but it's not necessary - OpenSSL knows how
+    // to use /dev/random and has already used it for seeding. If the
+    // RNG truly doesn't have enough entropy, the RSA_generate_key()
+    // call will fail.
+    if (RAND_load_file(rand_file_name_exp.c_str(), -1) == 0)
+      LOG(WARNING) << "Unable to load RAND file: " << rand_file_name_exp;
 
     // Generate the RSA key and an EVP_PKEY wrapper
     RSA* rsa = RSA_generate_key(kRsaKeyLength, kRsaKeyExponent, NULL, NULL);
@@ -311,10 +307,8 @@ class CertificateHandlerOpenSsl : public CertificateHandler {
     }
 
     // Write to the RAND file
-    if (RAND_write_file(rand_file_name_exp.c_str()) == 0) {
-      PLOG(ERROR) << "Unable to write to RAND file: " << rand_file_name_exp;
-      return false;
-    }
+    if (RAND_write_file(rand_file_name_exp.c_str()) == 0)
+      LOG(WARNING) << "Unable to write to RAND file: " << rand_file_name_exp;
 
     *rsap = rsa;
 
