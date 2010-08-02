@@ -18,6 +18,7 @@
 namespace entd {
 using chromeos::FreeServiceInfo;
 using chromeos::GetWifiService;
+using chromeos::ConfigureWifiService;
 using chromeos::ServiceInfo;
 
 const char Flimflam::kLibcrosPath[] =
@@ -86,24 +87,11 @@ static v8::Handle<v8::Value> dispatch_configNetwork(const v8::Arguments& args) {
   if (!Load(&error))
     return v8_fail(error);
 
-  ServiceInfo* ssid_info = GetWifiService(ssid.c_str(),
-                                          chromeos::SECURITY_8021X);
-  if (ssid_info) {
-    if (!chromeos::SetIdentity(ssid_info->service_path, user.c_str())) {
-      FreeServiceInfo(ssid_info);
-      return v8_fail("Failed to set identity");
-    }
-    if (!chromeos::SetPassphrase(ssid_info->service_path, pass.c_str())) {
-      FreeServiceInfo(ssid_info);
-      return v8_fail("Failed to set passphrase");
-    }
-    if (!chromeos::SetCertPath(ssid_info->service_path, cert_path.c_str())) {
-      FreeServiceInfo(ssid_info);
-      return v8_fail("Failed to set cert path");
-    }
-    return v8::True();
-  }
-  return v8::False();
+  if (!ConfigureWifiService(ssid.c_str(),chromeos::SECURITY_8021X,
+                            pass.c_str(), user.c_str(), cert_path.c_str()))
+    return v8_fail("Failed to configure wifi service");
+
+  return v8::True();
 }
 
 // bool disconnectNetwork(const char* ssid);
