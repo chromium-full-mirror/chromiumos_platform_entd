@@ -9,9 +9,13 @@
  * check the validity of the extension manifest.  If this function returns
  * false, entd exits and does not restart until the next user logs in.
  *
- * @param manifest {object} The deserialized extension manifest for the
+ * @param manifest {Object} The deserialized extension manifest for the
  *   enterprise policy.
  */
+
+const Slot = entd.crypto.Pkcs11.Slot;
+const Token = entd.crypto.Pkcs11.Token;
+const Session = entd.crypto.Pkcs11.Session;
 
 entd.verifyManifest =
 function verifyManifest(manifest) {
@@ -71,8 +75,10 @@ entd.http.RESPONSE_OK = 200;
  * @param {Object} manifest The extension manifest, as reported by entd.
  */
 function Policy(manifest) {
-  entd.syslog.info('Init: ' + manifest.description);
-  entd.syslog.info('current user: ' + entd.username);
+  this.logMessages = [];
+
+  this.info('Initializing: ' + manifest.description);
+  this.info('Current user: ' + entd.username);
 
   // Certificate definitions to be populated later by this.addCertificate()
   this.certificates = {};
@@ -104,10 +110,144 @@ function Policy(manifest) {
   this.setVariable('userDomain', ary[2]);
 
   this.callbacks = new Policy.Callbacks(this);
+
+  this.pkcs11 = {
+    api: null,
+    error: null,
+    initCount: 0
+  };
+
+  entd.setTimeout(util.bindp(this, 'initPkcs11'), 1);
 }
 
-// Well known user PIN for the TPM
+// Security Officer PIN for the PKCS11 token.
+Policy.PKCS11_SO_PIN = '000000';
+
+// User PIN for the PKCS11 token.
 Policy.PKCS11_USER_PIN = '111111';
+
+/**
+ * Log an information status message.
+ *
+ * @param  {string} str The informational message to log.
+ * @return {string} The string logged.
+ */
+Policy.prototype.info =
+function info(str) { return this.log_('info', str) };
+
+/**
+ * Log a warning status message.
+ *
+ * @param  {string} str The warning message to log.
+ * @return {string} The string logged.
+ */
+Policy.prototype.warn =
+function warn(str) { return this.log_('warn', str) };
+
+/**
+ * Log an error status message.
+ *
+ * @param  {string} str The error message to log.
+ * @return {string} The string logged.
+ */
+Policy.prototype.error =
+function error(str) { return this.log_('error', str) };
+
+Policy.prototype.log_ =
+function log_(type, str) {
+  entd.syslog[type](str);
+  this.logMessages.push(str);
+};
+
+/**
+ * Return a log marker.
+ *
+ * The return value of this function can be passed back in to
+ * Policy.prototype.getLog() to fetch the log messages that have occurred since
+ * the mark.
+ *
+ * @return {int} A log marker.
+ */
+Policy.prototype.getLogMark =
+function getLogMark() {
+  return this.logMessages.length - 1;
+}
+
+/**
+ * Get all of the log messages that have occurred since a given mark.
+ *
+ * Returns all log messages that have occurred since a given mark as a single
+ * string.  If no mark is provided, all log messages are returned.
+ *
+ * @param {int} mark Optional. The mark representing the starting point in the
+ *   log that you are interested in.
+ * @return {string} Newline delimited log messages.
+ */
+Policy.prototype.getLog =
+function getLog(mark) {
+  if (!mark)
+    return this.logMessages.join('\n');
+
+  return this.logMessages.slice(mark + 1).join('\n');
+}
+
+/**
+ * Record the starting point of an asynchronous operation on a given object.
+ *
+ * Use this in conjunction with Policy.prototype.stop() to record status and
+ * log messages about an asynchronous operation pertaining to the given
+ * object.
+ *
+ * The object in question should be considered unstable (because some
+ * ongoing operation on the object has not completed) until a corresponding
+ * stop() call is made.
+ *
+ * @param {Object} obj The object that is the subject of the operation.
+ * @param {string} state A short identifier for the operation being started.
+ * @param {string} msg Optional. An informational message to log.
+ */
+Policy.prototype.start =
+function start(obj, state, msg) {
+  obj.state = 'start:' + state;
+  obj.log = "";
+  obj.mark_ = this.getLogMark();
+
+  if (msg)
+    this.info(msg);
+}
+
+/**
+ * Record the completion of an asynchrnous operation on a given object.
+ *
+ * Call this after an operation started with Policy.prototype.start() has
+ * completed.  This indicates that the current state of the object is stable,
+ * although the operation itself may not have been successful, or another
+ * operation may be required before the object is ready for use.
+ *
+ * The stop state may be any short idenfitier, though by convention you should
+ * use 'error' to mean that the operation completed with an error condition,
+ * and 'ready' when the object is has been fully initialized and is ready for
+ * general use.
+ *
+ * @param {Object} obj The object that is the subject of the operation.
+ * @param {string} state A short identifier for the operation being started.
+ * @param {string} msg Optional. A message to log.  If the state parameter is
+ *  'error', then the message is logged with the error severity, otherwise it
+ *  will be logged as an informational message.
+ */
+Policy.prototype.stop =
+function stop(obj, state, msg) {
+  if (msg) {
+    if (state == 'error')
+      this.error(msg);
+    else
+      this.info(msg);
+  }
+
+  obj.state = 'stop:' + state;
+  obj.log = this.getLog(obj.mark);
+  obj.mark_ = null;
+}
 
 /**
  * Set a variable for this policy.
@@ -148,7 +288,7 @@ function getVariable(name, opt_default) {
  *
  * @param {string} id An identifier for the certificate definition.
  * @param {Object} params The parameters for this certificate.  See the
- *     documentation for the Polict.Certificate constructor for details.
+ *     documentation for the Policy.Certificate constructor for details.
  */
 Policy.prototype.addCertificate =
 function addCertificate(id, params) {
@@ -156,6 +296,215 @@ function addCertificate(id, params) {
   this.certificates[util.toKey(id)] = cert;
   return cert;
 };
+
+/**
+ * Initialize the PKCS#11 API.
+ *
+ * If the API fails to initialize, then this will retry every second until
+ * initialization succeeds.
+ */
+Policy.prototype.initPkcs11 =
+function initPkcs11() {
+  if (this.pkcs11.api) {
+    // Already initialized.
+    return true;
+  }
+
+  this.start(this.pkcs11, 'init');
+
+  ++this.pkcs11.initCount;
+
+  this.info('Initializing PKCS11 library, attempt: ' +
+            this.pkcs11.initCount);
+
+  if (entd.pkcs11.isReady) {
+    this.info('entd.pkcs11 is ready.');
+
+    try {
+      this.pkcs11.api = new entd.crypto.Pkcs11();
+      this.info('entd.cryto.Pkcs11 initialized.');
+    } catch (ex) {
+      this.error('PKCS11 library failed to initialize: ' + ex);
+      this.pkcs11.error = ex;
+    }
+  } else {
+    this.pkcs11.error = this.info('entd.pkcs11 is not ready.');
+  }
+
+  if (this.pkcs11.api == null) {
+    // Initialization failed, try again in a second.
+    entd.setTimeout(util.bindp(this, "initPkcs11"), 1000);
+    return false;
+  }
+
+  for (var key in this.certificates) {
+    this.info('checking certificate: ' + key);
+    var cert = this.certificates[key];
+    if (cert.isInstalled()) {
+      cert.onInstall_(/* firstInstall: */ false);
+    }
+  }
+
+  var pkcs11 = this.pkcs11.api;
+  for (var i = 0; i < pkcs11.slots.length; ++i) {
+    var token = pkcs11.slots[i].token;
+    if (!token)
+      continue;
+
+    if (this.checkToken(token)) {
+      this.stop(token, 'ready');
+    } else {
+      this.stop(token, 'unknown');
+    }
+  }
+
+  this.stop(this.pkcs11, 'ready');
+
+  return true;
+}
+
+/**
+ * Check if a PKCS11 token appears to be ready for use.
+ *
+ * This method returns true if the given token has been initialized, both
+ * PINs have been set, and neither PIN is locked.
+ */
+Policy.prototype.checkToken =
+function initToken(token) {
+  token.refresh();
+  return ((token.flags & Token.CKF_TOKEN_INITIALIZED) &&
+          (token.flags & Token.CKF_USER_PIN_INITIALIZED) &&
+          !(token.flags & (Token.CKF_SO_PIN_TO_BE_CHANGED ||
+                           Token.CKF_USER_PIN_TO_BE_CHANGED ||
+                           Token.CKF_SO_PIN_LOCKED ||
+                           Token.CKF_USER_PIN_LOCKED)));
+}
+
+/**
+ * Initialize a PKCS11 token.
+ *
+ * This performs *only* the token initialization.  Callers must also reset
+ * the SO and User PINs before the token is usable.
+ *
+ * @param {entd.Pkcs11.Token} token The token to initialize.
+ * @param {string} tokenLabel Optional.  The label to assign to the new token.
+ */
+Policy.prototype.initToken =
+function initToken(token, tokenLabel) {
+  if (!tokenLabel)
+    tokenLabel = "Initialized by CrOS";
+
+  this.start(token, 'init',
+             'Initializing token: ' + tokenLabel);
+
+  var sopin;
+
+  token.refresh();
+  if (token.flags & Token.CKF_SO_PIN_TO_BE_CHANGED) {
+    // If the SO pin hasn't been initialized yet, then it's the one
+    // assigned by opencryptoki.
+    sopin = Token.DEFAULT_SO_PIN;
+  } else {
+    // Otherwise, it *should be* the one we assigned when we initialized it.
+    sopin = Policy.PKCS11_SO_PIN;
+  }
+
+  try {
+    token.initToken(sopin, tokenLabel);
+  } catch (ex) {
+    this.stop(token, 'error', 'Initialization failed: ' + ex);
+    return false;
+  }
+
+  token.refresh();
+
+  if (!(token.flags & Token.CKF_TOKEN_INITIALIZED)) {
+    this.stop(token, 'error', 'Token did not initialize.');
+    return;
+  }
+
+  // Token is now blank, but the entd.pkcs11 code needs a little push to
+  // realize it.
+  for (var key in entd.pkcs11.slots)
+    delete entd.pkcs11.slots[key];
+
+  // Also, all of the certificate objects need to have their state reset.
+  for (var key in this.certificates)
+    this.certificates[key].state = 'stop:unknown';
+
+  this.stop(token, 'init', 'Token initialized.');
+  this.info('token state: ' + token.state);
+  return true;
+}
+
+/**
+ * Set a PIN on a PKCS11 token.
+ *
+ * Logs in to the given token using oldPin, then resets the pin to newPin and
+ * logs out.
+ *
+ * @param {entd.Pkcs11.Token} token The target token.
+ * @param {int} userType The type of user to reset.  Either Session.CKU_SO or
+ *   Session.CKU_USER.
+ * @param {string} oldPin The current PIN for this user.
+ * @param {string} newPin The new PIN for this user.
+ *
+ * @return {boolean} True if the operation succeeded, false otherwise.
+ */
+Policy.prototype.setTokenPin =
+function initTokenPins(token, userType, oldPin, newPin) {
+  var pinType = (userType == Session.CKU_SO ? 'so' : 'user') + '-pin';
+  this.start(token, pinType, 'Resetting PIN: ' + pinType);
+
+  if (oldPin == newPin) {
+    if (this.checkToken(token)) {
+      this.stop(token, 'ready');
+    } else {
+      this.stop(token, pinType);
+    }
+    return true;
+  }
+
+  try {
+    token.closeAllSessions();
+    session = token.openSession(Token.CKF_RW_SESSION);
+  } catch (ex) {
+    this.stop(token, 'error', 'Unable to open session: ' + ex);
+    return false;
+  }
+
+  try {
+    if (!session.login(userType, oldPin)) {
+      this.stop(token, 'error', 'Unable to log in using ' + pinType);
+      session.close();
+      return false;
+    }
+  } catch (ex) {
+    this.stop(token, 'error', 'Exception initializing PIN: ' + ex);
+    session.close();
+    return false;
+  }
+
+  this.info('PIN Reset for: ' + pinType);
+
+  try {
+    session.setPin(oldPin, newPin);
+    this.info('PIN Reset complete.');
+  } catch (ex) {
+    this.stop(token, 'error', 'Exception changing PIN: ' + ex);
+    session.close();
+    return false;
+  }
+
+  if (this.checkToken(token)) {
+    this.stop(token, 'ready');
+  } else {
+    this.stop(token, pinType);
+  }
+
+  session.close();
+  return true;
+}
 
 /**
  * Certificate Definition constructor
@@ -241,10 +590,7 @@ function PolicyCertificate(policy, id, params) {
 
   this.userVariables = params.userVariables || null;
 
-  this.status = this.isInstalled() ? 'Installed' : 'Not Installed';
-
-  if (this.isInstalled())
-    this.onInstall_(/* firstInstall: */ false);
+  this.state = 'stop:unknown';
 };
 
 /**
@@ -296,7 +642,7 @@ function cert_replaceVars(str) {
  * @return {string} The string logged.
  */
 Policy.Certificate.prototype.info =
-function info(str) { return this.setStatus_('info', str) };
+function info(str) { return this.log_('info', str) };
 
 /**
  * Log a warning status message about this certificate definition.
@@ -305,7 +651,7 @@ function info(str) { return this.setStatus_('info', str) };
  * @return {string} The string logged.
  */
 Policy.Certificate.prototype.warn =
-function warn(str) { return this.setStatus_('warn', str) };
+function warn(str) { return this.log_('warn', str) };
 
 /**
  * Log an error status message about this certificate definition.
@@ -314,13 +660,43 @@ function warn(str) { return this.setStatus_('warn', str) };
  * @return {string} The string logged.
  */
 Policy.Certificate.prototype.error =
-function error(str) { return this.setStatus_('error', str) };
+function error(str) {
+  return this.log_('error', str);
+};
 
-Policy.Certificate.prototype.setStatus_ =
-function setStatus_(type, str) {
-  entd.syslog[type]('Certificate ' + this.id + ': ' + str);
-  this.status = type + ': ' + str;
-  return this.status;
+/**
+ * Log the fact that an asynchronous operation has started for this certificate.
+ *
+ * See Policy.prototype.start.
+ */
+Policy.Certificate.prototype.start =
+function start(state, msg) {
+  if (msg)
+    this.info(msg);
+
+  this.policy.start(this, state);
+}
+
+/**
+ * Log the fact that an asynchronous operation has started for this certificate.
+ *
+ * See Policy.prototype.start.
+ */
+Policy.Certificate.prototype.stop =
+function stop(state, msg) {
+  if (msg) {
+    if (state == 'error')
+      this.error(msg);
+    else
+      this.info(msg);
+  }
+
+  return this.policy.stop(this, state);
+}
+
+Policy.Certificate.prototype.log_ =
+function log_(type, str) {
+  return this.policy[type]('Certificate ' + this.id + ': ' + str);
 };
 
 Policy.Certificate.prototype.findSlotByLabel =
@@ -338,6 +714,8 @@ function findSlotByLabel(label) {
  */
 Policy.Certificate.prototype.onInstall_ =
 function onInstall(firstInstall) {
+  this.start('install');
+
   this.path = 'SETTINGS:key_id=' + this.key_identifier +
     ',cert_id=' + this.key_identifier +
     ',pin=' + Policy.PKCS11_USER_PIN;
@@ -348,9 +726,12 @@ function onInstall(firstInstall) {
     try {
       this.onInstall(firstInstall);
     } catch (ex) {
-      this.error('Exception running post-install callback: ' + ex);
+      this.stop('error', 'Exception running post-install callback: ' + ex);
+      return;
     }
   }
+
+  this.stop('ready');
 };
 
 /**
@@ -370,7 +751,7 @@ function isInstalled() {
  */
 Policy.Certificate.prototype.initiateCSR =
 function initiateCSR() {
-  this.info('Initiating Certificate Signing Request');
+  this.start('csr', 'Initiating Certificate Signing Request');
 
   // Set up a request object.
   var r = new entd.http.Request(this.csr.host, this.replaceVars(this.csr.path));
@@ -435,44 +816,64 @@ function initiateCSR() {
   this.info('POSTing to ' + r.url);
 };
 
-// Called when a http request times out.
+/**
+ * Called when a http request times out.
+ */
 Policy.Certificate.prototype.onHTTPTimeout_ =
 function onHTTPTimeout(request) {
-  this.error('HTTP Time out during ' + request.description);
+  this.stop('error', 'HTTP Timeout during ' + request.description);
 };
 
-// Called when a http request errors out.
+/**
+ * Called when a http request errors out.
+ */
 Policy.Certificate.prototype.onHTTPError_ =
 function onHTTPError_(request, reason) {
-  this.error('Error sending request: ' + reason + ', during ' +
-             request.description);
+  this.stop('error', 'Error sending request: ' + reason + ', during ' +
+            request.description);
 };
 
-// Called when the CSR request completes with anything other than a timeout.
+/**
+ * Called when the CSR request completes with anything other than a timeout.
+ */
 Policy.Certificate.prototype.onCSRComplete_ =
 function onCSRComplete_(request, response) {
   this.info('CSR completed with http status: ' + response.code);
 
   if (response.code != entd.http.RESPONSE_OK) {
-    this.error('HTTP error ' + response.code + ' during ' +
-               request.description);
+    var reason;
+
+    switch (response.code) {
+      case 401:
+        reason = 'Invalid password';
+        break;
+      case 500:
+        reason = 'Internal server error';
+        break;
+      default:
+        reason = 'HTTP Error ' + response.code;
+    }
+
+    this.stop('error', reason + ' during ' + request.description);
     return;
   }
 
   try {
     this.parseCSR(response);
   } catch (ex) {
-    this.error('Error parsing request id: ' + ex);
+    this.stop('error', 'Error parsing request id: ' + ex);
     return;
   }
 
-  this.getCert_();
+  this.stop('csr');
 };
 
-// Fetch a cert that was just created for us as the result of a CSR.
-Policy.Certificate.prototype.getCert_ =
-function getCert_() {
-  this.info('Getting Certificate');
+/**
+ * Fetch a cert that was just created for us as the result of a CSR.
+ */
+Policy.Certificate.prototype.getCert =
+function getCert() {
+  this.start('cert', 'Getting Certificate');
 
   var r = new entd.http.Request(this.issuer.host,
                                 this.replaceVars(this.issuer.path));
@@ -502,8 +903,8 @@ function getCert_() {
 Policy.Certificate.prototype.onIssuanceComplete_ =
 function onIssuanceComplete(request, response) {
   if (response.code != entd.http.RESPONSE_OK) {
-    this.error('HTTP error ' + response.code + ' during ' +
-               request.description);
+    this.stop('error', 'HTTP error ' + response.code + ' during ' +
+              request.description);
     return;
   }
 
@@ -513,15 +914,13 @@ function onIssuanceComplete(request, response) {
   // ...and store it in the TPM.
   var slot = this.findSlotByLabel(this.label);
   if (!slot) {
-    this.error("Can't add certificate: missing slot object");
+    this.stop('error', "Can't add certificate: missing slot object");
     return;
   }
 
   slot.addCertificate(cert);
-
-  this.onInstall_(/* firstInstall: */ true);
+  this.stop('cert');
 };
-
 
 /**
  * Policy.Callbacks constructor.
@@ -566,9 +965,229 @@ Policy.Callbacks.prototype['cb:info'] =
 function cb_info() {
   return Policy.CallbackSuccess({
    description: this.policy.manifest.description,
+   version: this.policy.manifest.version,
    username: entd.username,
+   pkcs11: {
+     state: this.policy.pkcs11.state,
+     log: this.policy.getLog(this.policy.pkcs11)
+   }
   });
 };
+
+/**
+ * Set the user PIN on a given token.
+ *
+ * This is a no-op if the oldPin and newPin are the same value.
+ *
+ * @param {Object} arg An object with the following properties:
+ *  - 'slotId' An integer representing the slot that contains the target token.
+ *  - 'oldPin' An optional string representing the current PIN.  Defaults to
+ *      Token.DEFAULT_USER_PIN or Policy.PKCS11_USER_PIN, depending on the
+ *      state of the token.
+ *  - 'oldPin' An optional string representing the new PIN.  Defaults to
+ *      Policy.PKCS11_USER_PIN.
+ *
+ * Setting the user pin is an asynchronous operation.  While the set is in
+ * progress the token state will be 'start:user-pin'.  If the operation
+ * completes successfully, the token state should become 'stop:ready', although
+ * if the operation completes successfully but the token is not ready due to
+ * some unexpected condition, it will become 'stop:user-pin'.  On error it will
+ * become 'stop:error'.
+ */
+Policy.Callbacks.prototype['cb:setUserPin'] =
+function cb_setUserPin(arg) {
+  var pkcs11 = this.policy.pkcs11.api;
+  if (!pkcs11)
+    return Policy.CallbackError('Pkcs11 not initialized');
+
+  if (!('slotId' in arg))
+    return Policy.CallbackError('Missing required parameter: slotId');
+
+  var token = pkcs11.slots[arg.slotId].token;
+  if (!token)
+    return Policy.CallbackError('Invalid slotId: ' + arg.slotId);
+
+  if (!arg.oldPin) {
+    token.refresh();
+    if (token.flags & Token.CKF_USER_PIN_TO_BE_CHANGED) {
+      arg.oldPin = Token.DEFAULT_USER_PIN;
+    } else {
+      arg.oldPin = Policy.PKCS11_USER_PIN;
+    }
+  }
+
+  if (!arg.newPin)
+    arg.newPin = Policy.PKCS11_USER_PIN;
+
+  arg.userType = 'user';
+
+  return this.setPin_(arg);
+}
+
+/**
+ * Set the Security Officer PIN on a given token.
+ *
+ * This is a no-op if the oldPin and newPin are the same value.
+ *
+ * @param {Object} arg An object with the following properties:
+ *  - 'slotId' An integer representing the slot that contains the target token.
+ *  - 'oldPin' An optional string representing the current PIN.  Defaults to
+ *      Token.DEFAULT_SO_PIN or Policy.PKCS11_SO_PIN, depending on the
+ *      state of the token.
+ *  - 'oldPin' An optional string representing the new PIN.  Defaults to
+ *      Policy.PKCS11_SO_PIN.
+ *
+ * Setting the user pin is an asynchronous operation.  While the set is in
+ * progress the token state will be 'start:so-pin'.  If the operation
+ * completes successfully the token state will become 'stop:so-pin'.  On
+ * error it will become 'stop:error'.
+ */
+Policy.Callbacks.prototype['cb:setSoPin'] =
+function cb_setSoPin(arg) {
+  var pkcs11 = this.policy.pkcs11.api;
+  if (!pkcs11)
+    return Policy.CallbackError('Pkcs11 not initialized');
+
+  if (!('slotId' in arg))
+    return Policy.CallbackError('Missing required parameter: slotId');
+
+  var token = pkcs11.slots[arg.slotId].token;
+  if (!token)
+    return Policy.CallbackError('Invalid slotId: ' + arg.slotId);
+
+  if (!arg.oldPin) {
+    token.refresh();
+    if (token.flags & Token.CKF_SO_PIN_TO_BE_CHANGED) {
+      arg.oldPin = Token.DEFAULT_SO_PIN;
+    } else {
+      arg.oldPin = Policy.PKCS11_SO_PIN;
+    }
+  }
+
+  if (!arg.newPin)
+    arg.newPin = Policy.PKCS11_SO_PIN;
+
+  arg.userType = 'so';
+
+  return this.setPin_(arg);
+}
+
+/**
+ * Common code for cb:setUserPin and cb:setSoPin.
+ */
+Policy.Callbacks.prototype.setPin_ =
+function cb_setPin_(arg) {
+  var pkcs11 = this.policy.pkcs11.api;
+  if (!pkcs11)
+    return Policy.CallbackError('Pkcs11 not initialized');
+
+  if (!('slotId' in arg))
+    return Policy.CallbackError('Missing required parameter: slotId');
+
+  var token = pkcs11.slots[arg.slotId].token;
+  if (!token)
+    return Policy.CallbackError('Invalid slotId: ' + arg.slotId);
+
+  if (!arg.oldPin)
+    return Policy.CallbackError('Missing required parameter: oldPin');
+
+  if (!arg.newPin)
+    return Policy.CallbackError('Missing required parameter: newPin');
+
+  if (!arg.userType)
+    return Policy.CallbackError('Missing required parameter: userType');
+
+  var userType;
+
+  if (arg.userType == "user") {
+    userType = Session.CKU_USER;
+  } else if (arg.userType == "so") {
+    userType = Session.CKU_SO;
+  } else {
+    return Policy.CallbackError('Invalid userType: ' + arg.userType);
+  }
+
+  var policy = this.policy;
+  entd.setTimeout(function () {
+      policy.setTokenPin(token, userType, arg.oldPin, arg.newPin);
+    }, 1);
+
+  return Policy.CallbackSuccess('Resetting user pin');
+}
+
+/**
+ * Initialize a PKCS11 token.
+ *
+ * @param {Object} arg An object with the following properties:
+ *  - 'slotId' An integer representing the slot that contains the target token.
+ *
+ * Initializing a PKCS11 token is an asynchronous operation.  While the
+ * initialization is in progress the token state will be 'start:init'.  If the
+ * operation completes successfully the token state will become 'stop:init'.
+ * On error it will become 'stop:error'.
+ */
+Policy.Callbacks.prototype['cb:initToken'] =
+function cb_initToken(arg) {
+  var pkcs11 = this.policy.pkcs11.api;
+  if (!pkcs11)
+    return Policy.CallbackError('Pkcs11 not initialized');
+
+  if (!('slotId' in arg))
+    return Policy.CallbackError('Mising parameter: slotId');
+
+  if (!(arg.slotId in pkcs11.slots))
+    return Policy.CallbackError('Invalid slotId: ' + arg.slotId);
+
+  var token = pkcs11.slots[arg.slotId].token;
+  if (!token)
+    return Policy.CallbackError('Slot has no token: ' + arg.slotId);
+
+  var policy = this.policy;
+  entd.setTimeout(function () { policy.initToken(token, arg.tokenLabel) }, 1);
+
+  return Policy.CallbackSuccess('Initializing token');
+}
+
+/**
+ * Return a list known PKCS11 tokens.
+ */
+Policy.Callbacks.prototype['cb:listTokens'] =
+function cb_listTokens() {
+  var pkcs11 = this.policy.pkcs11.api;
+  if (!pkcs11)
+    return Policy.CallbackError('Pkcs11 not initialized');
+
+  var tokenList = new Array();
+
+  for (var i in pkcs11.slots) {
+    var slot = pkcs11.slots[i];
+    if (!slot.token)
+      continue;
+
+    var token = slot.token;
+    token.refresh();
+
+    var tokenData = { slotId: i, log: '' };
+
+    for (var key in slot.token)
+      tokenData[key] = slot.token[key];
+
+    tokenData.uintFlags = tokenData.flags;
+    tokenData.flags = new Object();
+
+    for (var key in Token) {
+      // The client doesn't have access to the constants in
+      // entd.pkcs11.crypto.Token.CKF_*, so we copy the applicable flags
+      // onto the tokenData, minus the "CKF_" prefix.
+      if (key.match(/^CKF_/))
+        tokenData.flags[key.substr(4)] = !!(token.flags & Token[key]);
+    }
+
+    tokenList.push(tokenData);
+  }
+
+  return Policy.CallbackSuccess({ tokenList: tokenList });
+}
 
 /**
  * Return the list of certificate definitions.
@@ -600,10 +1219,12 @@ function cb_listCerts(arg) {
     var cert = this.policy.certificates[key];
     rv[key] = {
       id: cert.id,
+      key: key,
       label: cert.label,
       userVariables: cert.userVariables,
       installed: cert.isInstalled() ? 1 : 0,
-      status: cert.status,
+      log: cert.log,
+      state: cert.state,
     };
   }
 
@@ -622,10 +1243,10 @@ function cb_listCerts(arg) {
  *  - 'variables' An object containing the user variables required for this
  *      certificate.
  *
- * @return {Policy.CallbackSuccess} If successful.  The data will be
- *   a string with a human readable status message.
- * @return {Policy.CallbackError} If unsuccessful.  The data will be a
- *   human readable string containing the reason for the error.
+ * The CSR is an asynchronous operation.  While the in progress the certificate
+ * state will be 'start:csr'.  If the operation completes successfully the
+ * certificate state will become 'stop:csr'. On error it will become
+ * 'stop:error'.
  */
 Policy.Callbacks.prototype['cb:initiateCSR'] =
 function cb_initiateCSR(arg) {
@@ -662,6 +1283,72 @@ function cb_initiateCSR(arg) {
   cert.initiateCSR();
   return Policy.CallbackSuccess(cert.info('Initiating CSR for: ' + cert.label));
 };
+
+/**
+ * Retrieve a certificate.
+ *
+ * This policy callback is used to request a certificate after the successful
+ * completion of a CSR.
+ *
+ * @param {Object} arg An object with the following properties:
+ *  - 'certificateId' A string identifying the certificate.
+ *
+ * The certificate request is an asynchronous operation.  While the in progress
+ * the certificate state will be 'start:cert'.  If the operation completes
+ * successfully the certificate state will become 'stop:cert'.  On error it
+ * will become 'stop:error'.
+ */
+Policy.Callbacks.prototype['cb:getCert'] =
+function cb_getCert(arg) {
+
+  // If they forgot to reference a certificate, or we can't locate the
+  // one they referenced, we return a hard CallbackError.  If the UI notices
+  // a CallbackError, its only recourse is to show a generic alert message.
+  if (!arg)
+    return Policy.CallbackError('Missing arguments');
+
+  var cert = this.policy.certificates[util.toKey(arg.certificateId)];
+  if (!cert)
+    return Policy.CallbackError('Unknown certificate: ' + arg.certificateId);
+
+  cert.getCert();
+
+  return Policy.CallbackSuccess(cert.info('Fetching certificate for: ' +
+                                          cert.label));
+}
+
+/**
+ * Complete the installation of a certificate.
+ *
+ * This policy callback is used to complete the installation of a certificate
+ * that has been successfully requested with cb:getCert.
+ *
+ * @param {Object} arg An object with the following properties:
+ *  - 'certificateId' A string identifying the certificate.
+ *
+ * The certificate install is an asynchronous operation.  While the in progress
+ * the certificate state will be 'start:init'.  If the operation completes
+ * successfully the certificate state will become 'stop:ready'.  On error it
+ * will become 'stop:error'.
+ */
+Policy.Callbacks.prototype['cb:installCert'] =
+function cb_installCert(arg) {
+
+  // If they forgot to reference a certificate, or we can't locate the
+  // one they referenced, we return a hard CallbackError.  If the UI notices
+  // a CallbackError, its only recourse is to show a generic alert message.
+  if (!arg)
+    return Policy.CallbackError('Missing arguments');
+
+  var cert = this.policy.certificates[util.toKey(arg.certificateId)];
+  if (!cert)
+    return Policy.CallbackError('Unknown certificate: ' + arg.certificateId);
+
+  cert.onInstall_(/* firstInstall: */ true);
+
+  return Policy.CallbackSuccess(cert.info('Installing certificate: ' +
+                                          cert.label));
+}
 
 /**
  * Return an object indicating that a callback succeeded.
@@ -708,7 +1395,7 @@ function replaceVars(str, vars) {
     // value in hex.  It's like an extreme uri encoding, and some CSR servers
     // seem to require it.
     rv = ch.charCodeAt(0).toString(16);
-    return "%" + (rv.length > 1 ? rv : ("0" + rv));
+    return '%' + (rv.length > 1 ? rv : ('0' + rv));
   }
 
   function cb(m, flag, name) {
@@ -805,8 +1492,8 @@ function bindp(obj, prop) {
  *   request.onComplete = util.bind(obj, obj.onComplete);
  *   obj.onComplete = function(data) { ... }
  *
- * Then the onComplete() method would have been property applied to 'obj',
- * but the request object would have been lost.
+ * Then the onComplete() method would have been applied to 'obj', but the
+ * request object would have been lost.
  *
  * @param  {Object} obj The object to bind to.
  * @param  {function} func The function to bind.
@@ -885,7 +1572,7 @@ function fromKey(str) {
  * copied onto the new clone.
  *
  * @param  {...Object} var_args One or more objects to clone.
- * @return {object} A new object with all of the properties of the source
+ * @return {Object} A new object with all of the properties of the source
  *    objects.
  */
 util.clone =
@@ -901,6 +1588,24 @@ function clone(var_args) {
 
   return rv;
 };
+
+/**
+ * Left pad a string to a given length, using a given character.
+ *
+ * @param {string} str The string to pad.
+ * @param {int} len The desired string length.
+ * @param {string} ch A single character to use as the padding.
+ */
+util.lpad =
+function pad(str, len, ch) {
+  if (typeof str != "string")
+    str = str.toString();
+
+  while (str.length < len);
+    str = ch + str;
+
+  return str;
+}
 
 /**
  * Ensures that an object has a set of required properties.

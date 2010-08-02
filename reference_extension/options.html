@@ -5,6 +5,8 @@
   -->
 <html>
   <head>
+    <script src="jquery-1.4.2.min.js"></script>
+    <script src="util.js"></script>
     <script src="client.js"></script>
     <style>
       body {
@@ -28,10 +30,20 @@
 
       h1 {
         color: #fff;
-        text-shadow: #16181a 0px 0px 5px;
+        text-shadow: #16181a 1px 1px 2px;
       }
 
-      #content {
+      td.label {
+        width: 1%;
+        white-space: nowrap;
+      }
+
+      td.status:hover {
+        cursor: pointer;
+        text-decoration: underline;
+      }
+
+      .content {
         margin-right: auto;
         margin-left: auto;
         width: 600px;
@@ -39,6 +51,7 @@
         padding-right: 3em;
         padding-top: 1em;
         padding-bottom: 1em;
+        margin-bottom: 1em;
         background-color: #a1adbc;
         border-radius: 8px;
         -webkit-box-shadow: 2px 2px 2px #16181a;
@@ -47,11 +60,11 @@
                      from(#a1adbc), to(#adbaca));
       }
 
-      #cert-list {
+      .object-list {
         padding: 0px;
       }
 
-      #cert-list li {
+      .object-list li {
         background: -webkit-gradient(linear, left top, left bottom,
                      from(#f5f5f5), to(#fff));
         border-radius: 4px;
@@ -61,17 +74,15 @@
         margin-bottom: 1em;
       }
 
-      #cert-list li .label {
+      .object-list li .label {
         font-weight: bold;
       }
 
-      #cert-list li[data-installed="0"] .status {
-        color: red;
-      }
-
-      #cert-list li[data-installed="1"] .status {
-        color: green;
-      }
+      [status='red'] { color: red; }
+      [status='green'] { color: green; }
+      [status='pending'] { color: #888 }
+      [status='progress'] { font-weight: bold }
+      span[status='progress']:before { content: 'Working: ' }
 
       #modal-shade {
         background-color: rgba(0,0,0,0.35);
@@ -80,11 +91,65 @@
         height: 100%;
         top: -100%;
         display: none;
-        -webkit-transition: top 0.25s ease-in-out;
+        -webkit-transition: all 0.25s ease-in-out;
       }
 
-      #modal-dialog {
+      .dialog-message {
+        margin-left: 50px;
+        margin-bottom: 10px;
+        min-height: 40px;
+        padding: 0.25em;
+        text-align: center;
+        font-size: 18px;
+        x-border: 1px black solid;
+        background-color: rgba(255, 255, 255, 0.7);
+        border-radius: 4px;
+      }
+
+      .dialog-graphic {
+        float: left;
+        font-size: 40px;
+        font-weight: bold;
+        text-align: center;
+        width: 40px;
+        border-radius: 4px;
+        background-color: rgba(255,255,224,0.5);
+        color: rgb(255, 204, 0);
+        border: 1px rgb(255, 204, 0) solid;
+      }
+
+      .dialog-graphic[status='success'] {
+        background-color: rgba(200,255,200,0.5);
+        color: rgb(50, 200, 50);
+        border: 1px rgb(50, 200, 50) solid;
+      }
+
+      .dialog-graphic[status='error'] {
+        background-color: rgba(255,200,200,0.5);
+        color: rgb(200, 50, 50);
+        border: 1px rgb(200, 50, 50) solid;
+      }
+        
+      .dialog-buttons {
+        width: 100%;
+        margin-top: 10px;
+        height: 1.5em;
+      }
+
+      .dialog-buttons > button,
+      .dialog-buttons > input {
+        float: right;
+      }
+
+      textarea.dialog-details {
+        height: 0em;
+        width: 95%;
+        -webkit-transition: height 0.25s ease-in-out;
+      }
+
+      .modal-dialog {
         position: relative;
+        overflow: hidden;
         background: -webkit-gradient(linear, left top, left bottom,
                      from(#ddd), to(#fff));
         border-radius: 4px;
@@ -106,34 +171,106 @@
   <body onload="client.onLoad()">
     <div id="page">
       <div id="modal-shade">
-        <div id="modal-dialog">
+        <div class="modal-dialog" id="alert-dialog">
+          <b class="dialog-title">Dialog Title</b>
+          <hr>
+          <div class="dialog-graphic"></div>
+          <div class="dialog-message"></div>
+          <center><textarea readonly class="dialog-details"></textarea></center>
+          <div class="dialog-buttons">
+            <input type="submit" class="dialog-ok"
+                    onclick="client.onAlertOk_(); return false"
+                    value="Ok">
+            <button class="dialog-cancel"
+                    onclick="client.onAlertCancel_(); return false"
+                    >Cancel</button>
+            <a class="dialog-details" href="javascript:client.toggleDetails();"
+               >Show Details</a>&nbsp;
+          </div>
+        </div>
+
+        <div class="modal-dialog" id="cert-query">
           <b>Required Input</b>
           <hr>
-          The certificate &ldquo;<span id="modal-desc"></span>&rdquo;
+          The certificate &ldquo;<span id="cert-label"></span>&rdquo;
           requires user input to complete the installation.
-          <form onsubmit="client.onModalSubmit_(); return false">
+          <form onsubmit="client.onCertSubmit_(); return false">
             <ul id="user-vars"></ul>
             <div style="height:2em">
-              <div style="float:right">
+              <div class="dialog-buttons">
+                <button onclick="client.onCertCancel_(); return false"
+                        >Cancel</button>
                 <input type="submit" value="Submit">
-                <button onclick="client.onModalCancel_()">Cancel</button>
               </div>
             </div>
           </form>
+        </div>
+
+        <div class="modal-dialog" id="token-status">
+          <b>Initializing PKCS#11 Token</b>
+          <hr>
+          Please wait while the PKCS#11 Token
+          &ldquo;<span id="token-desc"></span>&rdquo; in slot
+          <span id="token-slot"></span> is initialized...
+
+          <ul>
+            <li><span class="status token-init">Initialize token.</span>
+            <li><span class="status token-so">Reset Security Officer PIN.</span>
+            <li><span class="status token-user">Reset User PIN.</span>
+          </ul>
+
+          This may take a minute or longer, depending on your hardware.
+          Please <b>do not</b> reload this page or reboot your computer
+          during the initialization process.
+        </div>
+
+        <div class="modal-dialog" id="cert-status">
+          <b>Installing Certificate</b>
+          <hr>
+          Please wait while the certificate
+          &ldquo;<span id="cert-desc"></span>&rdquo; is installed...
+
+          <ul>
+            <li><span class="status cert-csr">Send Signing Request.</span>
+            <li><span class="status cert-request">Request Certificate.</span>
+            <li><span class="status cert-install">Configure Network.</span>
+          </ul>
         </div>
       </div>
 
       <center>
         <h1>Enterprise policy options</h1>
-        <h2 id="title"><!-- client.js will replace this title --></h2>
       </center>
 
-      <div id="content">
-        <h2>Certificate Status</h2>
-        <ul id="cert-list">
+      <div class="content">
+        <ul class="object-list" id="overview-list">
+          <li>
+            <table width="100%">
+              <tr>
+                <td class="label">Policy</td>
+                <td id="policy-status">Unknown</td>
+                <td class="label">Daemon</td>
+                <td id="entd-status">Unknown</td>
+              <tr>
+              <tr>
+                <td class="label">User</td>
+                <td id="user-status">Unknown</td>
+                <td class="label">PKCS#11</td>
+                <td id="pkcs11-status">Unknown</td>
+              </tr>
+            </table>
+        </ul>
+
+        <h2>Tokens</h2>
+        <ul class="object-list" id="token-list">
+          <!-- client.js will populate this with the known tokens -->
+          <li><center>XXX</center></li>
+        </ul>
+
+        <h2>Certificates</h2>
+        <ul class="object-list" id="cert-list">
           <!-- client.js will populate this with the known certs -->
-          <li><center>Waiting for reply from the Enterprise
-              Daemon...</center></li>
+          <li><center>XXX</center></li>
         </ul>
       </div>
     </div>
