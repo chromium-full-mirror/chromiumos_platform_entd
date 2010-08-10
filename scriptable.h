@@ -62,9 +62,18 @@ namespace entd {
 //   Foo* foo_ptr = foo.native_ptr();
 //   Foo::Reference foo_3(foo_ptr);
 //
+//   // You can get at the V8 JavaScript object associated with a native
+//   // object using Foo::js_object(), as in...
+//   v8::Handle<v8::Object> foo_js_obj = foo->js_object();
+//
+//   // The static Foo::Unwrap method will safely return the native object
+//   // associated with a JavaScript object.  You should always test for
+//   // a NULL result from unwrap, which indicates that the given JavaScript
+//   // is not an instance of Foo.
+//   foo_ptr = Foo::Unwrap(foo_js_obj);
+//
 // See the documentation for ::Construct() for an example of how to complete
-// script-based instantiation of a Scriptable object, and how to unwrap the
-// Foo* from a Handle<Object> containing one.
+// script-based instantiation of a Scriptable object.
 //
 template<typename T>
 class Scriptable {
@@ -180,17 +189,13 @@ class Scriptable {
   //  global->Set(String::New("Foo"), Foo::constructor_template());
   //
   // Do not override this in your subclass.  In the likely event that you
-  // want to customize your constructor, override (but call the default
-  // implementation of) InitializeTemplate() instead.  See below for more
-  // details.
+  // want to customize your constructor, override Construct() instead.
   static v8::Handle<v8::FunctionTemplate> constructor_template();
 
   // Initialize the constructor template for this class.
   //
   // This static method will be called once, the first time someone tries to
-  // construct an instance of this class.  You should perform one-time
-  // initialization of the FunctionTemplate (or, more typically,
-  // FunctionTemplate::InstanceTemplate()) here.
+  // construct an instance of this class.
   //
   // If you need to perform instance specific initialization, override
   // T::Construct() instead.  See the Construct() method below for more
@@ -257,9 +262,13 @@ class Scriptable {
  protected:
   // Complete the construction of a new instance of this class from JavaScript.
   //
-  // You should override this if you need to parse constructor arguments, or if
-  // you want to assign functions or properties that are specific to this
-  // instance.
+  // This method is NOT called if you construct an instance from native code.
+  // Override this if you need to parse constructor arguments, and make sure to
+  // call any class specific initialization function, passing it any arguments
+  // you may have parsed.
+  //
+  // You can abort the constructor by throwing a v8 exception and returning
+  // any value.
   //
   // Your custom Construct method might look something like...
   //
@@ -291,6 +300,10 @@ class Scriptable {
   // ScriptConstruct to NativeConstruct.  NativeConstruct just returns
   // args.This() object without creating a new native object or
   // calling T::Construct().
+  //
+  // You won't need to override this since it's only used to prevent the
+  // normal ScriptConstruct from happening, when constructing from native
+  // code.
   static v8::Handle<v8::Value> NativeConstruct(const v8::Arguments& args);
 
   // Set up the construction of a new instance of this class from JavaScript.
