@@ -76,6 +76,7 @@ class Extension {
 
   // Set the list of requried policy files here
   static void InitPolicyFiles() {
+    s_policy_files_.push_back("isa-cros-policy");
     s_policy_files_.push_back("policy.js");
     s_policy_files_.push_back("manifest.json");
   }
