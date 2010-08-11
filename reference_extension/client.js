@@ -107,6 +107,13 @@ function loadInfo() {
       $('#user-status').
         text(retval.data.username);
 
+      if (retval.data.browserPolicyChanged) {
+        $('#entd-message').
+            text('Your browser settings have been changed, you ' +
+                 'must log out before they take effect').
+            attr('status', 'red');
+      }
+
       var pkcs11 = retval.data.pkcs11;
       if (pkcs11.state != 'stop:ready') {
         $("#pkcs11-status").

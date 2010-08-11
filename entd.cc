@@ -13,6 +13,7 @@
 #include <glib-object.h>
 #include <v8.h>
 
+#include "entd/browser.h"
 #include "entd/callback_server.h"
 #include "entd/flimflam.h"
 #include "entd/http.h"
@@ -420,6 +421,16 @@ v8::Handle<v8::Object> Entd::ConstructEntd() {
 
   entd->Set(v8::String::New("pkcs11"),
             pkcs11_->obj(), v8::ReadOnly);
+
+  Browser::Reference browser = Browser::New();
+  if (!browser->Initialize(this)) {
+    LOG(ERROR) << "Error initializing entd.browser";
+    exit(1);
+  }
+
+  entd->Set(v8::String::NewSymbol("Browser"),
+            Browser::constructor_template()->GetFunction());
+  entd->Set(v8::String::NewSymbol("browser"), browser->js_object());
 
   return handle_scope.Close(entd);
 }

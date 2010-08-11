@@ -32,7 +32,7 @@ class Pkcs11 : public Scriptable<Pkcs11> {
     static bool InitializeTemplate(v8::Handle<v8::FunctionTemplate> ctor_t);
 
     v8::Handle<v8::Value> Construct(const v8::Arguments& args) {
-      return Pkcs11::ThrowNoScriptableConstructor(class_name());
+      return ThrowNoScriptableConstructor();
     }
 
     // Call C_GetTokenInfo(), and copy the results to the js_object().
@@ -61,7 +61,7 @@ class Pkcs11 : public Scriptable<Pkcs11> {
     static bool InitializeTemplate(v8::Handle<v8::FunctionTemplate> ctor_t);
 
     v8::Handle<v8::Value> Construct(const v8::Arguments& args) {
-      return Pkcs11::ThrowNoScriptableConstructor(class_name());
+      return ThrowNoScriptableConstructor();
     }
 
     // Call C_GetSlotInfo(), and copy the results to the js_object().
@@ -91,7 +91,7 @@ class Pkcs11 : public Scriptable<Pkcs11> {
     static bool InitializeTemplate(v8::Handle<v8::FunctionTemplate> ctor_t);
 
     v8::Handle<v8::Value> Construct(const v8::Arguments& args) {
-      return Pkcs11::ThrowNoScriptableConstructor(class_name());
+      return ThrowNoScriptableConstructor();
     }
 
     // Various methods to support lazy indexed properties (eg, slots[0].)
@@ -131,7 +131,7 @@ class Pkcs11 : public Scriptable<Pkcs11> {
     static bool InitializeTemplate(v8::Handle<v8::FunctionTemplate> ctor_t);
 
     v8::Handle<v8::Value> Construct(const v8::Arguments& args) {
-      return Pkcs11::ThrowNoScriptableConstructor(class_name());
+      return ThrowNoScriptableConstructor();
     }
 
     // Call C_GetSessionInfo(), and copy the results to the js_object().
@@ -165,11 +165,6 @@ class Pkcs11 : public Scriptable<Pkcs11> {
   // This can be called multiple times.  It will keep trying to initialize the
   // library until it succeeds, then it will become a no-op.
   static CK_RV InitializeLibrary();
-
-  // Throws an exception that indicates the constructor cannot be invoked from
-  // script.  The class is still useful to script for instanceof checks.
-  static v8::Handle<v8::Value> ThrowNoScriptableConstructor(
-      std::string class_name);
 };
 
 } // namespace crypto

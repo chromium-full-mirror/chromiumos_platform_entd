@@ -102,6 +102,8 @@ function basic_tests() {
   greptest "syslog.js" "entd.syslog.error"
   greptest "simple-hostname.js" "LOOKS OK"
   greptest "simple-onunload.js" "LOOKS OK"
+  greptest "browser-policy-set.js" "LOOKS OK"
+  greptest "browser-policy-read.js" "LOOKS OK"
 
   greptest "--policy=test_data/print-manifest.js \
     --manifest=test_data/simple-manifest.json" '{"foo":1,"bar":2}' \

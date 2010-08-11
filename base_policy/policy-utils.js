@@ -111,6 +111,26 @@ function Policy(manifest) {
 
   this.callbacks = new Policy.Callbacks(this);
 
+  // Load the browser policy settings from the manifest, if they're set.  Keep
+  // track of whether or not the policy has changed, so that we can warn the
+  // user that they need to restart.
+  this.browserPolicyChanged = false;
+
+  if (manifest.browser) {
+    if (manifest.browser.managedPolicy) {
+      if (this.setBrowserPolicy("managed", manifest.browser.managedPolicy))
+        this.browserPolicyChanged = true;
+    }
+
+    if (manifest.browser.recommendedPolicy) {
+      if (this.setBrowserPolicy("recommended",
+                                manifest.browser.recommendedPolicy)) {
+        this.browserPolicyChanged = true;
+      }
+    }
+  }
+
+  // Kick off PKCS11 initialization.
   this.pkcs11 = {
     api: null,
     error: null,
@@ -922,6 +942,44 @@ function onIssuanceComplete(request, response) {
   this.stop('cert');
 };
 
+Policy.prototype.setBrowserPolicy =
+function setBrowserPolicy(type, sourcePolicy) {
+  var targetPolicy;
+  if (type == "managed") {
+    targetPolicy = entd.browser.managedPolicy;
+  } else if (type == "recommended") {
+    targetPolicy = entd.browser.recommendedPolicy;
+  } else {
+    throw "Invalid browser policy type: " + type;
+  }
+
+  this.info("Synchronizing browser policy: " + type);
+
+  var changed = false;
+
+  for (var p in targetPolicy) {
+    if (!(p in sourcePolicy)) {
+      delete targetPolicy[p];
+      changed = true;
+    }
+  }
+
+  for (var p in sourcePolicy) {
+    if (targetPolicy[p] != sourcePolicy[p]) {
+      targetPolicy[p] = sourcePolicy[p];
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    this.info("Browser restart is suggested.");
+  } else {
+    this.info("Browser policy has not changed.");
+  }
+
+  return changed;
+}
+
 /**
  * Policy.Callbacks constructor.
  *
@@ -967,6 +1025,7 @@ function cb_info() {
    description: this.policy.manifest.description,
    version: this.policy.manifest.version,
    username: entd.username,
+   browserPolicyChanged: this.policy.browserPolicyChanged,
    pkcs11: {
      state: this.policy.pkcs11.state,
      log: this.policy.getLog(this.policy.pkcs11)

@@ -329,6 +329,12 @@ class Scriptable {
     delete instance;
   }
 
+  // Call this from your overridden Construct() method if you don't want
+  // script to be able to invoke your constructor.
+  static v8::Handle<v8::Value> ThrowNoScriptableConstructor() {
+    return ThrowException(class_name() + "() cannot be invoked from script");
+  }
+
   Scriptable() { Scriptable<T>::InstanceCount(+1); }
   virtual ~Scriptable() { Scriptable<T>::InstanceCount(-1); }
 

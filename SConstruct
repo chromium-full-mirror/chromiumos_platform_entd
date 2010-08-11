@@ -38,6 +38,7 @@ def build():
       '${BUILD_DIR}/entd',
       [os.path.join("${BUILD_DIR}", fn) for fn in
        ("callback_server.cc",
+        "browser.cc",
         "entd.cc",
         "extensions.cc",
         "flimflam.cc",

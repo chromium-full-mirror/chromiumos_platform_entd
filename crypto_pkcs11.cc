@@ -688,12 +688,6 @@ bool Pkcs11::InitializeTemplate(v8::Handle<v8::FunctionTemplate> ctor_t) {
   return true;
 }
 
-// static
-v8::Handle<v8::Value> Pkcs11::ThrowNoScriptableConstructor(
-    std::string class_name) {
-  return ThrowException(class_name + "() cannot be invoked from script");
-}
-
 }  // namespace crypto
 
 }  // namespace entd

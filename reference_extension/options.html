@@ -166,6 +166,10 @@
         background-color: red;
         color: white;
       }
+
+      #entd-message {
+        text-align: center;
+      }
     </style>
   </head>
   <body onload="client.onLoad()">
@@ -198,9 +202,9 @@
             <ul id="user-vars"></ul>
             <div style="height:2em">
               <div class="dialog-buttons">
+                <input type="submit" value="Submit">
                 <button onclick="client.onCertCancel_(); return false"
                         >Cancel</button>
-                <input type="submit" value="Submit">
               </div>
             </div>
           </form>
@@ -257,6 +261,9 @@
                 <td id="user-status">Unknown</td>
                 <td class="label">PKCS#11</td>
                 <td id="pkcs11-status">Unknown</td>
+              </tr>
+              <tr>
+                <td id="entd-message" colspan="4"></td>
               </tr>
             </table>
         </ul>
