@@ -144,8 +144,9 @@ function loadInfo() {
       if (!daemonError) {
         daemonError = true;
         client.showError(
-            'The Enterprise Daemon has not started, you may need to clear ' +
-            'your TPM to recover.', 'Error',
+            'The Enterprise Daemon has not started.  You must log out or ' +
+            'reboot after installing the policy.  If the problem persists, ' +
+            'try clearing your TPM in the BIOS.', 'Error',
             { details: JSON.stringify(retval)} );
       }
     }
@@ -303,7 +304,9 @@ function initToken(token, force) {
   function onerror(retval) {
     if (retval instanceof client.CallbackError)
       client.hideModal(function () {
-          client.showError(retval.data || retval.msg, 'Error',
+          client.showError('There was an error initializing your token. ' +
+                           'If the problem persists, clear your TPM and try ' +
+                           'again.', 'Error',
                            { details: JSON.stringify(retval) });
         });
   };
@@ -313,7 +316,8 @@ function initToken(token, force) {
     if (retval instanceof client.CallbackError)
       return onerror(retval);
 
-    client.refreshTokens(retval.data.tokenList);
+    client.tokens = retval.data.tokenList;
+    client.refreshTokens(client.tokens);
 
     token = retval.data.tokenList[slotId];
     if (!token)
@@ -386,6 +390,18 @@ function initToken(token, force) {
  */
 client.onCertInstall_ =
 function onCertInstall_(cert) {
+  var tokenOk = false;
+
+  for (var i = 0; i < client.tokens.length; ++i) {
+    if (client.tokens[i].state == "stop:ready")
+      tokenOk = true;
+  }
+
+  if (!tokenOk) {
+    client.showAlert("Please initialize your token first");
+    return;
+  }
+
   if (cert.userVariables) {
     client.showCertQuery(cert);
   } else {
@@ -701,7 +717,7 @@ function showCertDetails(cert) {
 client.showCertProgress =
 function showCertProgress(cert) {
   $('#cert-status').find('.status').attr('status', 'pending');
-  $('#cert-label').text(cert.label);
+  $('#cert-status-label').text(cert.label);
   client.showModal_('#cert-status');
 }
 
@@ -733,7 +749,7 @@ function showCertQuery(cert) {
     $('#user-vars').append(html);
   }
 
-  $('#cert-label').text(cert.label);
+  $('#cert-query-label').text(cert.label);
 
   client.showModal_('#cert-query');
 };

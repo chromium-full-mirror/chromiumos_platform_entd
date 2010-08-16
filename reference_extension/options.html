@@ -196,7 +196,7 @@
         <div class="modal-dialog" id="cert-query">
           <b>Required Input</b>
           <hr>
-          The certificate &ldquo;<span id="cert-label"></span>&rdquo;
+          The certificate &ldquo;<span id="cert-query-label"></span>&rdquo;
           requires user input to complete the installation.
           <form onsubmit="client.onCertSubmit_(); return false">
             <ul id="user-vars"></ul>
@@ -232,7 +232,7 @@
           <b>Installing Certificate</b>
           <hr>
           Please wait while the certificate
-          &ldquo;<span id="cert-desc"></span>&rdquo; is installed...
+          &ldquo;<span id="cert-status-label"></span>&rdquo; is installed...
 
           <ul>
             <li><span class="status cert-csr">Send Signing Request.</span>
@@ -271,13 +271,13 @@
         <h2>Tokens</h2>
         <ul class="object-list" id="token-list">
           <!-- client.js will populate this with the known tokens -->
-          <li><center>XXX</center></li>
+          <li><center>Waiting for response</center></li>
         </ul>
 
         <h2>Certificates</h2>
         <ul class="object-list" id="cert-list">
           <!-- client.js will populate this with the known certs -->
-          <li><center>XXX</center></li>
+          <li><center>Waiting for response</center></li>
         </ul>
       </div>
     </div>

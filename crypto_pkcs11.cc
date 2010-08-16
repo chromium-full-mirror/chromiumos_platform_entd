@@ -30,11 +30,33 @@ namespace crypto {
   self->Set(v8::String::New(#name),                                         \
             v8::Integer::NewFromUnsigned(name), v8::ReadOnly)
 
+bool CKRVToString(CK_RV rv, std::string *rv_string) {
+  v8::Handle<v8::Function> ctor = Pkcs11::constructor_template()->GetFunction();
+
+  v8::Handle<v8::Array> ary = ctor->GetPropertyNames();
+  for (uint32_t i = 0; i < ary->Length(); ++i) {
+    v8::String::AsciiValue name(ary->Get(i));
+    if (strncmp("CKR_", *name, 4) == 0) {
+      uint32_t value = ctor->Get(ary->Get(i))->Uint32Value();
+      if (value == rv) {
+        rv_string->assign(*name, name.length());
+        return true;
+      }
+    }
+  }
+
+  unsigned int urv = rv;
+  rv_string->assign(StringPrintf("0x%08X", urv));
+
+  return false;
+}
+
 // Check that a CK_RV value is CKR_OK, throw a V8 exception if it is not.
 bool OkOrThrow(CK_RV rv) {
   if (rv != CKR_OK) {
-    unsigned int urv = rv;
-    utils::ThrowV8Exception("PKCS#11 Error: 0x" + StringPrintf("%08X", urv));
+    std::string rv_string;
+    CKRVToString(rv, &rv_string);
+    utils::ThrowV8Exception("PKCS#11 Error: " + rv_string);
     return false;
   }
 
@@ -44,8 +66,9 @@ bool OkOrThrow(CK_RV rv) {
 // Check that a CK_RV value is CKR_OK, log a warning if it is not.
 bool OkOrWarn(CK_RV rv) {
   if (rv != CKR_OK) {
-    unsigned int urv = rv;
-    LOG(WARNING) << "PKCS#11 Error: 0x" << StringPrintf("%08X", urv);
+    std::string rv_string;
+    CKRVToString(rv, &rv_string);
+    LOG(WARNING) << "PKCS#11 Error: " << rv_string;
     return false;
   }
 
