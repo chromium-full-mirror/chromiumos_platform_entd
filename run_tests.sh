@@ -11,7 +11,11 @@ USERNAME="user@google.com"
 ALLOW_DIRTY_EXIT=1
 ALLOW_FILE_IO=1
 ENABLE_OPENCRYPTOKI="1"
-ENTD="../../scripts/run_32bit.sh out/i686-pc-linux-gnu/entd --"
+SYSROOT="/build/x86-generic"
+RUN32="../../scripts/run_32bit.sh"
+ENTD="$RUN32 out/i686-pc-linux-gnu/entd --"
+PKCSSLOTD="$RUN32 $SYSROOT/usr/sbin/pkcsslotd --"
+PKCS_SLOT="$RUN32 $SYSROOT/usr/sbin/pkcs_slot --"
 
 # If non-zero, print test output on failure
 VERBOSE=1
@@ -127,13 +131,12 @@ function http_tests() {
 function pkcs11_tests() {
   # First test expects pkcs11 won't be ready.
   sudo killall pkcsslotd
-
   greptest "pkcs11-notready.js" "LOOKS OK"
 
   # The remaining tests expect it to be ready, and to have a SO pin of 111111,
   # and a user pin of 000000.  This will be true if the crypto_pkcs11 tests
   # pass.
-  sudo pkcsslotd
+  sudo $PKCSSLOTD
 
   greptest "pkcs11-csr.js" "LOOKS OK"
   greptest "pkcs11-cert.js" "LOOKS OK"
@@ -143,16 +146,35 @@ function pkcs11_tests() {
   greptest 'pkcs11-opencryptoki-delete.js' "LOOKS OK"
 }
 
+function init_pkcs11() {
+  if [ ! -d "/var/lib/opencryptoki/tpm/" ]; then
+    sudo $PKCS_SLOT 0 tpm
+  fi
+
+  if [ ! -f "/usr/sbin/pkcsslotd" ]; then
+    sudo ln -s "$SYSROOT/usr/sbin/pkcsslotd" "/usr/sbin/pkcsslotd"
+  fi
+
+  if ! groups | grep -q pkcs11; then
+    echo "*** The user '$USER' is not in the pkcs11 group."
+    echo "*** Please run: sudo /usr/sbin/usermod -a -G pkcs11 $USER"
+    echo "*** Then exit the chroot and come back."
+    exit 1
+  fi
+}
+
 function crypto_pkcs11_tests() {
   # First test expects pkcs11 won't be ready.
   sudo killall pkcsslotd
+  init_pkcs11
 
   greptest "crypto-pkcs11-notready.js" "LOOKS OK"
 
   # The remaining tests expect it to be ready, and to start off totally
   # unitialized.
+
   sudo rm -rf "/var/lib/opencryptoki/tpm/$USER"
-  (sleep 1; sudo pkcsslotd) &
+  (sleep 1; sudo $PKCSSLOTD) &
 
   # This one specifically expects it won't be ready right away, but will
   # become ready.
