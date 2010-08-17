@@ -92,6 +92,7 @@ client.loadInfo =
 function loadInfo() {
   var daemonError = false;
   var pkcs11Error = false;
+  var tpmError = false;
 
   function oncomplete(retval) {
     var ready = false;
@@ -106,13 +107,6 @@ function loadInfo() {
 
       $('#user-status').
         text(retval.data.username);
-
-      if (retval.data.browserPolicyChanged) {
-        $('#entd-message').
-            text('Your browser settings have been changed, you ' +
-                 'must log out before they take effect').
-            attr('status', 'red');
-      }
 
       var pkcs11 = retval.data.pkcs11;
       if (pkcs11.state != 'stop:ready') {
@@ -132,8 +126,29 @@ function loadInfo() {
         $("#pkcs11-status").
           text('Ready').
           attr('status', 'green');
-        ready = true;
-        client.hideModal();
+
+        if (retval.data.isLibcrosLoaded && !retval.data.tpm.isEnabled) {
+          if (!tpmError) {
+            client.showError("Your TPM is not enabled.  Please enable " +
+                             "it in the BIOS.");
+            $('#entd-message').
+              text('Please reboot and enable your TPM.').
+              attr('status', 'red');
+            tpmError = true;
+          }
+        } else if (retval.data.isLibcrosLoaded && !retval.data.tpm.isReady) {
+          if (!tpmError) {
+            client.showAlert("Your TPM is not owned.  If this message does " +
+                             "not go away on its own after a minute, you " +
+                             "should reboot and clear your TPM in the BIOS.");
+            $('#entd-message').
+              text('Waiting for TPM.').
+              attr('status', 'red');
+            tpmError = true;
+          }
+        } else {
+          ready = true;
+        }
       }
 
     } else {
@@ -152,6 +167,16 @@ function loadInfo() {
     }
 
     if (ready) {
+      if (retval.data.browserPolicyChanged) {
+        $('#entd-message').
+            text('Your browser settings have been changed, you ' +
+                 'must log out before they take effect.').
+            attr('status', 'red');
+      } else {
+        $('#entd-message').text('');
+      }
+
+      client.hideModal();
       client.onPkcs11Ready();
     } else {
       setTimeout(function () {
@@ -262,14 +287,11 @@ function installCert(cert, variables) {
                                   onerror);
     } else if (cert.state == 'stop:ready') {
       $('#cert-status').find('.cert-install').attr('status', 'green');
-      client.hideModal(function () {
-          client.showSuccess('Your certificate has been installed',
-                             'Certificate Installed');
-        });
+      client.showSuccess('Your certificate has been installed',
+                         'Certificate Installed');
       return;
     } else if (cert.state == 'stop:error') {
-      client.hideModal(function () { client.showCertDetails(cert) });
-
+      client.showCertDetails(cert);
       return;
     }
 
@@ -303,12 +325,10 @@ function initToken(token, force) {
   // Called for any kind of error from the enterprise daemon.
   function onerror(retval) {
     if (retval instanceof client.CallbackError)
-      client.hideModal(function () {
-          client.showError('There was an error initializing your token. ' +
-                           'If the problem persists, clear your TPM and try ' +
-                           'again.', 'Error',
-                           { details: JSON.stringify(retval) });
-        });
+      client.showError('There was an error initializing your token. ' +
+                       'If the problem persists, clear your TPM and try ' +
+                       'again.', 'Error',
+                       { details: JSON.stringify(retval) });
   };
 
   // Called when we get an updated list of tokens.
@@ -339,17 +359,12 @@ function initToken(token, force) {
     } else if (token.state == 'stop:ready') {
       // User pin is set, all done.
       $('.status.token-user').attr('status', 'green');
-      client.hideModal(function () {
-          client.showSuccess('The PKCS#11 token has been successfully ' +
-                             'initialized. You may now install certificates.',
-                             'Token Initialized');
-        });
+      client.showSuccess('The PKCS#11 token has been successfully ' +
+                         'initialized. You may now install certificates.',
+                         'Token Initialized');
       return;
     } else if (token.state == 'stop:error') {
-      client.hideModal(function () {
-          client.showTokenDetails(token);
-      });
-
+      client.showTokenDetails(token);
       return;
     }
 
@@ -450,6 +465,12 @@ function onAlertCancel() {
 client.showModal_ =
 function showModal_(dialogQuery, callback) {
   var container = $('#modal-shade');
+  if (container.css('display') == 'inherit') {
+    // Dialog is already displayed, hide it first.
+    client.hideModal(function () { client.showModal(dialogQuery, callback) });
+    return;
+  }
+
   var dialog = $(dialogQuery, container)[0];
 
   if (!dialog)
