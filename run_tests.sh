@@ -106,6 +106,7 @@ function basic_tests() {
   greptest "syslog.js" "entd.syslog.error"
   greptest "simple-hostname.js" "LOOKS OK"
   greptest "simple-onunload.js" "LOOKS OK"
+  greptest "simple-tpm.js" "LOOKS OK"
   greptest "browser-policy-set.js" "LOOKS OK"
   greptest "browser-policy-read.js" "LOOKS OK"
 

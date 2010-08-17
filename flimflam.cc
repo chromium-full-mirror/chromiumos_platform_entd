@@ -11,8 +11,8 @@
 #include "base/basictypes.h"
 #include "base/logging.h"
 #include "base/string_util.h"
-#include "cros/chromeos_cros_api.h"
 #include "cros/chromeos_network.h"
+#include "entd/entd.h"
 #include "entd/utils.h"
 
 namespace entd {
@@ -21,27 +21,8 @@ using chromeos::GetWifiService;
 using chromeos::ConfigureWifiService;
 using chromeos::ServiceInfo;
 
-const char Flimflam::kLibcrosPath[] =
-    "/opt/google/chrome/chromeos/libcros.so";
-
 Flimflam::~Flimflam() {
   CleanupTemplate();  // We only have one Flimflam instance
-}
-
-bool Load(std::string* load_error_string) {
-  static bool loaded = false;
-  if (loaded) {
-    LOG(INFO) << "Already loaded libcros...";
-    return true;
-  }
-
-  loaded = chromeos::LoadLibcros(Flimflam::kLibcrosPath, *load_error_string);
-
-  if (!loaded) {
-    LOG(ERROR) << "Problem loading chromeos shared object: "
-               << *load_error_string;
-  }
-  return loaded;
 }
 
 static v8::Handle<v8::Value> v8_fail(const std::string& err) {
@@ -83,9 +64,8 @@ static v8::Handle<v8::Value> dispatch_configNetwork(const v8::Arguments& args) {
         "cert_path contains illegal characters in call to configNetwork");
   }
 
-  std::string error;
-  if (!Load(&error))
-    return v8_fail(error);
+  if (!Entd::LibcrosLoadedOrThrow())
+    return v8::Undefined();
 
   if (!ConfigureWifiService(ssid.c_str(),chromeos::SECURITY_8021X,
                             pass.c_str(), user.c_str(), cert_path.c_str()))
@@ -108,9 +88,8 @@ static v8::Handle<v8::Value> dispatch_disconnectNetwork(
                    "disconnectNetwork");
   }
 
-  std::string error;
-  if (!Load(&error))
-    return v8_fail(error);
+  if (!Entd::LibcrosLoadedOrThrow())
+    return v8::Undefined();
 
   ServiceInfo* ssid_info = GetWifiService(ssid.c_str(),
                                           chromeos::SECURITY_8021X);

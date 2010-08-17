@@ -1026,6 +1026,11 @@ function cb_info() {
    version: this.policy.manifest.version,
    username: entd.username,
    browserPolicyChanged: this.policy.browserPolicyChanged,
+   isLibcrosLoaded: entd.isLibcrosLoaded,
+   tpm: {
+     isReady: (entd.isLibcrosLoaded ? entd.tpm.isReady : true),
+     isEnabled: (entd.isLibcrosLoaded ? entd.tpm.isEnabled : true),
+   },
    pkcs11: {
      state: this.policy.pkcs11.state,
      log: this.policy.getLog(this.policy.pkcs11)

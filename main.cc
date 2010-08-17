@@ -68,6 +68,8 @@ static const char *kAllowDirtyExit = "allow-dirty-exit";
 static const char *kEnableSyslog = "enable-syslog";
 static const char *kDisableSyslog = "disable-syslog";
 
+static const char *kLibcrosLocation = "libcros-location";
+
 }  // namespace switches
 
 bool handle_message(int severity, const std::string &message) {
@@ -167,6 +169,12 @@ int main(int argc, char** argv) {
   if (cl->HasSwitch(switches::kAllowSelfSigned)) {
     LOG(INFO) << "Allowing self-signed certs.";
     entd::Http::allow_self_signed_certs = true;
+  }
+
+  if (cl->HasSwitch(switches::kLibcrosLocation)) {
+    entd::Entd::libcros_location = cl->GetSwitchValueASCII(
+        switches::kLibcrosLocation);
+    LOG(INFO) << "Setting libcros location: " << entd::Entd::libcros_location;
   }
 
   if (cl->HasSwitch(switches::kAllowFileIO)) {

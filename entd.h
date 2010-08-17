@@ -48,6 +48,12 @@ class Entd : public JSObjectWrapper<Entd> {
   // without the TPM.
   static bool allow_file_io;
 
+  // True if we were able to load libcros.
+  static bool libcros_loaded;
+
+  // Location of the libcros library.
+  static std::string libcros_location;
+
   void SetUsername(const std::string& username) {
     LOG(INFO) << "Username set to: " << username;
     username_ = username;
@@ -98,6 +104,10 @@ class Entd : public JSObjectWrapper<Entd> {
 
   // Immediate Initializations (before parameters are set)
   virtual bool Initialize();
+
+  // Returns true if libcros is loaded, throws a v8 exception and returns
+  // false if not.
+  static bool LibcrosLoadedOrThrow();
 
   // Load the policy script and start processing events.
   virtual uint32_t Run();

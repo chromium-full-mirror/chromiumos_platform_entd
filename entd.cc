@@ -13,6 +13,7 @@
 #include <glib-object.h>
 #include <v8.h>
 
+#include "cros/chromeos_cros_api.h"
 #include "entd/browser.h"
 #include "entd/callback_server.h"
 #include "entd/flimflam.h"
@@ -21,6 +22,7 @@
 #include "entd/crypto_pkcs11.h"
 #include "entd/scriptable.h"
 #include "entd/syslog.h"
+#include "entd/tpm.h"
 #include "entd/utils.h"
 
 namespace entd {
@@ -330,6 +332,8 @@ Entd::~Entd() {
 
 bool Entd::allow_dirty_exit = false;
 bool Entd::allow_file_io = false;
+bool Entd::libcros_loaded = false;
+std::string Entd::libcros_location = "/opt/google/chrome/chromeos/libcros.so";
 
 // Bind "setTimeout" and "clearTimeout" to the entd template object.
 void Entd::SetTemplateBindings(v8::Handle<v8::ObjectTemplate> template_object) {
@@ -357,6 +361,12 @@ bool Entd::Initialize() {
   event_init();
   LOG(INFO) << "Initialized libevent " << event_get_version();
 
+  std::string errmsg;
+  Entd::libcros_loaded = chromeos::LoadLibcros(
+      Entd::libcros_location.c_str(), errmsg);
+  if (!Entd::libcros_loaded)
+    LOG(WARNING) << "Problem loading chromeos shared object: " << errmsg;
+
   return true;
 }
 
@@ -369,6 +379,9 @@ v8::Handle<v8::Object> Entd::ConstructEntd() {
     exit(1);
   }
   v8::Handle<v8::Object> entd = obj();
+
+  entd->Set(v8::String::NewSymbol("isLibcrosLoaded"),
+            v8::Boolean::New(Entd::libcros_loaded));
 
   // Build the flimflam object.
   if (!flimflam_->Initialize()) {
@@ -431,6 +444,16 @@ v8::Handle<v8::Object> Entd::ConstructEntd() {
   entd->Set(v8::String::NewSymbol("Browser"),
             Browser::constructor_template()->GetFunction());
   entd->Set(v8::String::NewSymbol("browser"), browser->js_object());
+
+  Tpm::Reference tpm = Tpm::New();
+  if (!tpm->Initialize()) {
+    LOG(ERROR) << "Error initializing entd.tpm";
+    exit(1);
+  }
+
+  entd->Set(v8::String::NewSymbol("Tpm"),
+            Tpm::constructor_template()->GetFunction());
+  entd->Set(v8::String::NewSymbol("tpm"), tpm->js_object());
 
   return handle_scope.Close(entd);
 }
@@ -602,6 +625,16 @@ bool Entd::StopScriptingEnvironment() {
       // Failed for other reasons
       return false;
     }
+  }
+
+  return true;
+}
+
+// static
+bool Entd::LibcrosLoadedOrThrow() {
+  if (!Entd::libcros_loaded) {
+    utils::ThrowV8Exception("Library not loaded: libcros");
+    return false;
   }
 
   return true;

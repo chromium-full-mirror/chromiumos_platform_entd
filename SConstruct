@@ -47,6 +47,7 @@ def build():
         "pkcs11.cc",
         "crypto_pkcs11.cc",
         "syslog.cc",
+        "tpm.cc",
         "utils.cc",)]
       )
 
