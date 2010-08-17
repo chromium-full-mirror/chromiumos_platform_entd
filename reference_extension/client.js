@@ -448,6 +448,11 @@ function onAlertCancel() {
   client.hideModal(client.modalContext.cancelCallback);
 }
 
+client.isModalVisible =
+function isModalVisible() {
+  return $('#modal-shade').css('display') == 'inherit';
+}
+
 /**
  * Common code for showing different kinds of modal alerts.
  *
@@ -465,12 +470,6 @@ function onAlertCancel() {
 client.showModal_ =
 function showModal_(dialogQuery, callback) {
   var container = $('#modal-shade');
-  if (container.css('display') == 'inherit') {
-    // Dialog is already displayed, hide it first.
-    client.hideModal(function () { client.showModal_(dialogQuery, callback) });
-    return;
-  }
-
   var dialog = $(dialogQuery, container)[0];
 
   if (!dialog)
@@ -579,6 +578,11 @@ function hideModal(callback) {
  */
 client.showAlert =
 function showAlert(message, title, options) {
+  if (client.isModalVisible()) {
+    client.hideModal(function () { client.showAlert(message, title, options) });
+    return;
+  }
+
   client.modalContext = {
     okCallback: (options && options.okCallback || null),
     cancelCallback: (options && options.cancelCallback || null),
@@ -615,6 +619,13 @@ function showAlert(message, title, options) {
  */
 client.showQuery =
 function showQuery(message, title, options) {
+  if (client.isModalVisible()) {
+    client.hideModal(function () {
+        client.showQuery(message, title, options)
+    });
+    return;
+  }
+
   client.showAlert(message, title, options);
 
   $('#alert-dialog .dialog-graphic').
@@ -631,6 +642,13 @@ function showQuery(message, title, options) {
  */
 client.showSuccess =
 function showSuccess(message, title, options) {
+  if (client.isModalVisible()) {
+    client.hideModal(function () {
+        client.showSuccess(message, title, options)
+    });
+    return;
+  }
+
   client.showAlert(message, title, options);
 
   $('#alert-dialog .dialog-graphic').
@@ -645,6 +663,13 @@ function showSuccess(message, title, options) {
  */
 client.showError =
 function showError(message, title, options) {
+  if (client.isModalVisible()) {
+    client.hideModal(function () {
+        client.showError(message, title, options)
+    });
+    return;
+  }
+
   client.showAlert(message, title || 'Error', options);
 
   $('#alert-dialog .dialog-graphic').
