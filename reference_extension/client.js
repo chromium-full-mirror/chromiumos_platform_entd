@@ -467,7 +467,7 @@ function showModal_(dialogQuery, callback) {
   var container = $('#modal-shade');
   if (container.css('display') == 'inherit') {
     // Dialog is already displayed, hide it first.
-    client.hideModal(function () { client.showModal(dialogQuery, callback) });
+    client.hideModal(function () { client.showModal_(dialogQuery, callback) });
     return;
   }
 
