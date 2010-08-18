@@ -19,8 +19,12 @@ client.onLoad =
 function onLoad() {
   client.modalShade = document.getElementById('modal-shade');
   client.loadManifest();
-  client.loadInfo();
 };
+
+client.onManifestLoaded =
+function onManifestLoaded() {
+  client.loadInfo();
+}
 
 /**
  * Called when client.initPkcs11() completes successfully.
@@ -76,6 +80,7 @@ function loadManifest() {
       // web server.
       client.manifest = JSON.parse(this.responseText);
       console.log('manifest: ' + this.responseText);
+      client.onManifestLoaded();
     }
   };
 
@@ -1089,7 +1094,8 @@ function invokePolicyCallback(name, arg, oncomplete) {
 
   xhr.open('POST', 'http://127.0.0.1:' + client.policyCallbackPort +
            '/dispatch');
-  xhr.setRequestHeader('X-Entd-Request', 'magic');
+  xhr.setRequestHeader('X-Entd-Request',
+                       client.manifest.requestHeaderValue || 'magic');
   xhr.setRequestHeader('Content-Type', 'application/json; charset=UTF-8');
   xhr.send(JSON.stringify({'function': name, 'argument': arg}));
 };
