@@ -710,7 +710,7 @@ function showTokenDetails(token) {
     return;
   }
 
-  if (token.state == 'stop:init') {
+  if (token.state == 'stop:ready') {
     client.showSuccess('Token is initialized', 'Token Information', options);
     return;
   }
@@ -752,7 +752,7 @@ function showCertDetails(cert) {
     return;
   }
 
-  if (cert.state == 'stop:install') {
+  if (cert.state == 'stop:ready') {
     client.showSuccess('Certificate is installed', 'Certificate Information',
                        options);
     return;
