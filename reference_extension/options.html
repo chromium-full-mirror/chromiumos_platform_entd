@@ -243,7 +243,12 @@
       </div>
 
       <center>
-        <h1>Enterprise policy options</h1>
+        <!-- This onclick handler can be useful for testing, when you want
+          -- to reload the page with the "search" portion of document.location
+          -- cleared.
+          -->
+        <h1 onclick="document.location.href = document.location.pathname"
+            >Enterprise policy options</h1>
       </center>
 
       <div class="content">

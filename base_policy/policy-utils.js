@@ -390,7 +390,7 @@ function initPkcs11() {
  * PINs have been set, and neither PIN is locked.
  */
 Policy.prototype.checkToken =
-function initToken(token) {
+function checkToken(token) {
   token.refresh();
   return ((token.flags & Token.CKF_TOKEN_INITIALIZED) &&
           (token.flags & Token.CKF_USER_PIN_INITIALIZED) &&
@@ -420,6 +420,7 @@ function initToken(token, tokenLabel) {
   var sopin;
 
   token.refresh();
+
   if (token.flags & Token.CKF_SO_PIN_TO_BE_CHANGED) {
     // If the SO pin hasn't been initialized yet, then it's the one
     // assigned by opencryptoki.
@@ -1176,7 +1177,7 @@ function cb_setPin_(arg) {
       policy.setTokenPin(token, userType, arg.oldPin, arg.newPin);
     }, 1);
 
-  return Policy.CallbackSuccess('Resetting user pin');
+  return Policy.CallbackSuccess('Resetting so pin');
 }
 
 /**
@@ -1412,6 +1413,14 @@ function cb_installCert(arg) {
 
   return Policy.CallbackSuccess(cert.info('Installing certificate: ' +
                                           cert.label));
+}
+
+Policy.Callbacks.prototype['cb:restart'] =
+function cb_restart(arg) {
+  entd.syslog.info("Restarting by client request.");
+  // Exit code two means we haven't errored, but would like to be restarted.
+  entd.scheduleShutdown(2);
+  return Policy.CallbackSuccess('Restarting');
 }
 
 /**

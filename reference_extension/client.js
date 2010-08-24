@@ -49,6 +49,11 @@ function getLastLogLine(log) {
   return '';
 }
 
+client.reload =
+function reload() {
+  document.location.href = document.location.pathname + "?reload";
+}
+
 /**
  * Get a url to a resource inside the extension.
  *
@@ -163,11 +168,17 @@ function loadInfo() {
 
       if (!daemonError) {
         daemonError = true;
-        client.showError(
-            'The Enterprise Daemon has not started.  You must log out or ' +
-            'reboot after installing the policy.  If the problem persists, ' +
-            'try clearing your TPM in the BIOS.', 'Error',
-            { details: JSON.stringify(retval)} );
+        var msg;
+
+        if (document.location.search.match(/reload/)) {
+          msg = 'Please wait while the Enterprise Daemon restarts.';
+        } else {
+          msg = 'The Enterprise Daemon has not started.  You must log out or ' +
+              'reboot after installing the policy.  If the problem persists, ' +
+              'try clearing your TPM in the BIOS.';
+        }
+
+        client.showError(msg, 'Error', { details: JSON.stringify(retval) } );
       }
     }
 
@@ -369,7 +380,12 @@ function initToken(token, force) {
                          'Token Initialized');
       return;
     } else if (token.state == 'stop:error') {
-      client.showTokenDetails(token);
+      // If the token failed to initialize, it might be left in a broken
+      // state.  This can happen if the hardware times out.  We ask entd
+      // to restart, because it should be able to detect the broken token
+      // and delete it.
+      client.invokePolicyCallback("restart");
+      client.showTokenDetails(token, { okCallback: client.reload });
       return;
     }
 
@@ -689,8 +705,10 @@ function showError(message, title, options) {
  * on the state of the token.
  */
 client.showTokenDetails =
-function showTokenDetails(token) {
-  var options = { details: '' };
+function showTokenDetails(token, options) {
+  var options = options || {};
+
+  options.details = '';
   if (token.log)
     options.details += token.log + '\n';
 
@@ -705,7 +723,8 @@ function showTokenDetails(token) {
   if (token.state == 'stop:error') {
     var msg = client.getLastLogLine(token.log);
     if (!msg)
-      msg = 'There was an error initializing your token';
+      msg = 'There was an error initializing your token.';
+
     client.showError(msg, 'Error', options);
     return;
   }
@@ -1089,7 +1108,8 @@ function invokePolicyCallback(name, arg, oncomplete) {
     }
 
     param.xhrStatus = xhr.status;
-    oncomplete(param);
+    if (typeof oncomplete == "function")
+      oncomplete(param);
   };
 
   xhr.open('POST', 'http://127.0.0.1:' + client.policyCallbackPort +
