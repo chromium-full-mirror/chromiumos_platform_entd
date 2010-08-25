@@ -14,13 +14,28 @@ ROOT_TOKEN_LINK="$OPENCRYPTOKI_DIR/tpm/root"
 
 USER_TOKEN_DIR="/home/$USERNAME/user/.tpm"
 
-if [ -e "$USER_TOKEN_DIR/PUBLIC_ROOT_KEY.pem" -a \
-  ! -e "$USER_TOKEN_DIR/PRIVATE_ROOT_KEY.pem" ]; then
-  # A token with a public key but no private key is a sign that
-  # initialization timed out.  The only way to recover seems to be to wipe
-  # out the whole token and try again.
-  logger "PKCS#11 token appears to be broken, deleting: $USER_TOKEN_DIR/*"
-  rm -rf "$USER_TOKEN_DIR"/*
+log() {
+  if [ -t 1 ]; then
+    echo "$@" 1>&2
+  else
+    logger -t $(basename "$0") "$@"
+  fi
+}
+
+if [ ! -e "$USER_TOKEN_DIR/PUBLIC_ROOT_KEY.pem" ]; then
+  log "No PKCS#11 token found for $USERNAME."
+else
+  if [ -e "$USER_TOKEN_DIR/PRIVATE_ROOT_KEY.pem" -a \
+       -e "$USER_TOKEN_DIR/TOK_OBJ/70000000" ]; then
+    log "PKCS#11 token for $USERNAME looks ok."
+  else
+    # If these files are missing, it's a sign that initialization timed out.
+    # The only way to recover seems to be to wipe out the whole token and try
+    # again.
+    log "PKCS#11 token for $USERNAME appears to be broken, deleting:" \
+      "$USER_TOKEN_DIR/*"
+    rm -rf "$USER_TOKEN_DIR"/*
+  fi
 fi
 
 # Ensure the directories exist
