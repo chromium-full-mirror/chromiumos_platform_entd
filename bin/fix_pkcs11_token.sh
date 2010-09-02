@@ -22,20 +22,32 @@ log() {
   fi
 }
 
+is_token_broken() {
+  if [ ! -e "/var/lib/.tpm_owned" ]; then
+    log "TPM is not owned, token for $USERNAME can't be valid."
+    return 0
+  fi
+
+  if [ "/var/lib/.tpm_owned" -nt "$USER_TOKEN_DIR" ]; then
+    log "PKCS#11 token for $USERNAME is from a previous TPM owner."
+    return 0
+  fi
+
+  if [ ! -e "$USER_TOKEN_DIR/PRIVATE_ROOT_KEY.pem" -o \
+       ! -e "$USER_TOKEN_DIR/TOK_OBJ/70000000" ]; then
+    log "PKCS#11 token for $USERNAME is missing some files."
+    return 0
+  fi
+
+  log "PKCS#11 token for $USERNAME looks ok."
+  return 1
+}
+
 if [ ! -e "$USER_TOKEN_DIR/NVTOK.DAT" ]; then
   log "No PKCS#11 token found for $USERNAME."
-else
-  if [ -e "$USER_TOKEN_DIR/PRIVATE_ROOT_KEY.pem" -a \
-       -e "$USER_TOKEN_DIR/TOK_OBJ/70000000" ]; then
-    log "PKCS#11 token for $USERNAME looks ok."
-  else
-    # If these files are missing, it's a sign that initialization timed out.
-    # The only way to recover seems to be to wipe out the whole token and try
-    # again.
-    log "PKCS#11 token for $USERNAME appears to be broken, deleting:" \
-      "$USER_TOKEN_DIR/*"
-    rm -rf "$USER_TOKEN_DIR"/*
-  fi
+elif is_token_broken; then
+  log "Removing $USER_TOKEN_DIR/*"
+  rm -rf "$USER_TOKEN_DIR"/*
 fi
 
 # Ensure the directories exist
