@@ -22,7 +22,7 @@ log() {
   fi
 }
 
-if [ ! -e "$USER_TOKEN_DIR/PUBLIC_ROOT_KEY.pem" ]; then
+if [ ! -e "$USER_TOKEN_DIR/NVTOK.DAT" ]; then
   log "No PKCS#11 token found for $USERNAME."
 else
   if [ -e "$USER_TOKEN_DIR/PRIVATE_ROOT_KEY.pem" -a \
