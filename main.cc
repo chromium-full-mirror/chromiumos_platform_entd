@@ -122,6 +122,10 @@ int main(int argc, char** argv) {
   CommandLine::Init(argc, argv);
   CommandLine* cl = CommandLine::ForCurrentProcess();
 
+  logging::InitLogging("/dev/null", logging::LOG_ONLY_TO_SYSTEM_DEBUG_LOG,
+                       logging::DONT_LOCK_LOG_FILE,
+                       logging::APPEND_TO_OLD_LOG_FILE);
+
   if (cl->HasSwitch(switches::kEnableSyslog) ||
       (!isatty(STDOUT_FILENO) && !cl->HasSwitch(switches::kDisableSyslog))) {
     // If syslog was explicitly enabled, or stdout is not a tty and syslog
