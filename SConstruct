@@ -57,7 +57,17 @@ def build():
 
 def get_variables():
   vars = Variables()
-  for tup in (
+
+  # These variables consist of flags that need to be split into individual
+  # strings.
+  for name, desc, default in (
+      ('CFLAGS', 'Extra Flags for ANSI C Compiler', ''),
+      ('CCFLAGS', 'Extra Flags for C++ Compiler', ''),
+      ('LDFLAGS', 'Extra Flags for Linker', '')):
+    vars.Add(name, desc, Split(os.environ.get(name, default)))
+
+  # These should be used as-is.
+  for name, desc, default in (
       ('SYSROOT',
        'Root of filesystem, serves as a base for other relative paths', ''),
       ('PKG_CONFIG_PATH', 'Path to pkg-conf files',
@@ -65,9 +75,6 @@ def get_variables():
       ('PKG_CONFIG_LIBDIR', 'Replace the default search directory', ''),
       ('LD_LIBRARY_PATH', 'Search path for dynamic libraries',
        '/usr/lib'),
-      ('CFLAGS', 'Extra Flags for ANSI C Compiler', ''),
-      ('CCFLAGS', 'Extra Flags for C++ Compiler', ''),
-      ('LDFLAGS', 'Extra Flags for Linker', ''),
       ('PREFIX', 'Installation prefix, relative to SYSROOT', '${SYSROOT}'),
       ('CHOST', 'Name of the toolchain, used to compute default ' +
        'toolchain executable names', ''),
@@ -78,12 +85,8 @@ def get_variables():
       ('LD', 'Linker', '/usr/bin/${TC_PREFIX}ld'),
       ('NM', 'Symbol Extractor', '/usr/bin/${TC_PREFIX}nm'),
       ('BUILD_DIR', 'Path for intermediate build objects', 'out/${CHOST}'),
-      ('V8_LIB', 'Path for v8 library', '${SYSROOT}/usr/lib'),
-     ):
-    # These variables will default to the environment variable of the
-    # same name, if one is set, otherwise they will take the default specified
-    # above.
-    vars.Add(tup[0], tup[1], os.environ.get(tup[0], tup[2]))
+      ('V8_LIB', 'Path for v8 library', '${SYSROOT}/usr/lib')):
+    vars.Add(name, desc, Split(os.environ.get(name, default)))
 
   return vars
 
@@ -96,12 +99,11 @@ def get_environment(vars):
   if env["CHOST"]:
     env["TC_PREFIX"] = "${CHOST}-"
 
-  env.Append(CFLAGS='--sysroot=${SYSROOT}',
-             CCFLAGS='--sysroot=${SYSROOT}',
-             );
+  env.Append(CFLAGS=['--sysroot=${SYSROOT}'],
+             CCFLAGS=['--sysroot=${SYSROOT}'])
 
   # copy all these vars to the build environment (UNIX process env, not just
-  # scons "Environment".)
+  # scons "Environment").
   for key in vars.keys():
     env['ENV'][key] = env[key]
 
