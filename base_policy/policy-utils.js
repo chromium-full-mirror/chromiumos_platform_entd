@@ -52,7 +52,7 @@ function verifyManifest(manifest) {
     if (!(perms instanceof Array))
       return fail('Invalid type for permissions: ' + perms);
 
-    if (perms.length != 1 || perms[0].indexOf("http://127.0.0.1") != 0)
+    if (perms.length != 1 || perms[0].indexOf("http://127.0.0.1/") != 0)
       return fail('Invalid permissions: ' + perms);
   }
 

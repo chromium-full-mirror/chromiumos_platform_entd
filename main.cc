@@ -157,9 +157,15 @@ int main(int argc, char** argv) {
     if (file_util::PathExists(path))
       manifest = path.value();
 
-    path = FilePath(extension_path).Append("root_ca.pem");
-    if (file_util::PathExists(path))
+    path = FilePath(extension_path).Append("root-ca.pem");
+    if (file_util::PathExists(path)) {
       root_ca_file = path.value();
+    } else {
+      // Backwards compatibility for old filename with underscore.
+      path = FilePath(extension_path).Append("root_ca.pem");
+      if (file_util::PathExists(path))
+        root_ca_file = path.value();
+    }
   }
 
   // Command line switches for policy files override extension filepaths
