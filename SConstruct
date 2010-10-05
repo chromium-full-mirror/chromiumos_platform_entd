@@ -17,6 +17,7 @@ def build():
     LINKFLAGS=['-fPIC'],
     LIBS=['base',
           'rt',
+          'dl',
           'pthread',
           'v8',
           'event',
