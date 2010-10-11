@@ -19,6 +19,8 @@ SIGNED_DIGEST="signed-digest.sha1"
 ROOT_CA_FILE="root-ca.pem"
 REQUIRED_TO_SIGN="isa-cros-policy manifest.json policy.js $SIGNING_CERT"
 REQUIRED_TO_START="$REQUIRED_FOR_SIGN $SIGNED_DIGEST"
+APPROVED_CA="approved-ca.pem"
+CANDIDATE_CA="candidate-ca.pem"
 
 . "/usr/lib/shflags" || (echo "error loading shflags"; exit 1)
 
@@ -30,8 +32,10 @@ DEFINE_boolean allow_self_signed $FLAGS_FALSE \
   "Allow self signed certificates" "S"
 DEFINE_string extension "" \
   "Location of the enterprise extension" "x"
-DEFINE_string extension_path "${HOME}/Extensions" \
+DEFINE_string extension_path "$HOME/Extensions" \
   "Location to search for extensions when --extension is not provided" "p"
+DEFINE_string enterprise_ca "" \
+  "URL of the enterprise root Certificate Authority." "C"
 DEFINE_string signing_key "" \
   "Location of the private key to use when signing." "K"
 DEFINE_string crx_key "" \
@@ -44,6 +48,8 @@ DEFINE_string username "$CHROMEOS_USER" \
   "ChromeOS Username (full email address)." "u"
 DEFINE_string output "$(pwd)" \
   "Destination directory or filename for crx files" "o"
+DEFINE_string user_var "$HOME/var/entd/" \
+  "Directory to store user specific state" "V"
 
 FLAGS "$@" || exit $?
 eval set -- "${FLAGS_ARGV}"
@@ -56,15 +62,27 @@ main() {
     exit 1
   fi
 
-  if [ -z "$extension" ]; then
-    # User didn't pick a particular extension, search one out.
-    extension="$(find_extension "$FLAGS_extension_path")"
-    if [ -z "$extension" ]; then
-      return 1
-    fi
+  if [ "$FLAGS_command" = "disapprove" ]; then
+    # Disable an approved enterprise ca.
+    cmd_disapprove
+    return $?
   fi
 
-  log "Using extension: $extension"
+  if [ "$FLAGS_command" = "approve" ]; then
+    # Approve an enterprise ca.
+    cmd_approve "$FLAGS_enterprise_ca"
+    return $?
+  fi
+
+  if [ -z "$extension" ]; then
+    extension="$(find_extension "$FLAGS_extension_path")"
+  fi
+
+  if [ -z "$extension" ]; then
+    return 1
+  fi
+
+  log "Enterprise extension: $extension"
 
   local result
   if [ "$FLAGS_command" = "makecrx" ]; then
@@ -120,7 +138,6 @@ cmd_makecrx() {
   fi
 
   local workdir="$(mktemp -d)"
-  echo "workdir: $workdir"
 
   local signed="$workdir/signed"
   mkdir -p "$signed"
@@ -202,8 +219,6 @@ cmd_sign() {
 cmd_verify() {
   local extension="$1"
 
-  log "Verifying: $extension"
-
   if ! (verify_files "$extension" "$REQUIRED_TO_START"); then
     log "Invalid extension: $extension"
     return 1
@@ -230,18 +245,9 @@ cmd_start() {
     return 1
   fi
 
-  local cn="$(get_cn "$extension")"
-
-  local hostname="$(echo "$FLAGS_username" | cut -f2 -d@)"
-
-  if [ "$cn" != "$hostname" ]; then
-    log "Certificate CN '$cn' does not match expected hostname '$hostname'"
-    return 1
-  fi
-
   local root_ca_option=""
   if [ -f "$extension/$ROOT_CA_FILE" ]; then
-    root_ca_option="--root-ca-file=$ROOT_CA_FILE"
+    root_ca_option="--root-ca-file=$extension/$ROOT_CA_FILE"
   fi
 
   exec "$FLAGS_entd" --utility="$FLAGS_utility" "$root_ca_option" \
@@ -249,11 +255,90 @@ cmd_start() {
     --username="$FLAGS_username"
 }
 
+cmd_disapprove() {
+  if [ -f "$FLAGS_user_var/$APPROVED_CA" ]; then
+    log "Removing enterprise certificate authority"
+    rm -f "$FLAGS_user_var/$APPROVED_CA"
+  else
+    log "No enterprise certificate authority has been approved."
+  fi
+}
+
+cmd_approve() {
+  local ca_url="$1"
+
+  if [ -z "$ca_url" ]; then
+    log "Missing CA url"
+    exit 1
+  fi
+
+  if [ "$(echo "$ca_url" | cut -c1-7)" != "http://" -a \
+       "$(echo "$ca_url" | cut -c1-8)" != "https://" ]; then
+    log "Invalid CA url, must begin with http:// or https://"
+    return 1
+  fi
+
+  mkdir -p "$FLAGS_user_var"
+  rm -f "$FLAGS_user_var/$CANDIDATE_CA"
+
+  wget -nv "$ca_url" -O "$FLAGS_user_var/$CANDIDATE_CA"
+
+  if [ ! -s "$FLAGS_user_var/$CANDIDATE_CA" ]; then
+    log "Error fetching candidate CA file."
+    return 1
+  fi
+
+  if ! grep -q "BEGIN CERTIFICATE" "$FLAGS_user_var/$CANDIDATE_CA"; then
+    log "Not a PEM encoded certificate."
+    return 1
+  fi
+
+  local output="$(openssl verify "$FLAGS_user_var/$CANDIDATE_CA")"
+
+  if [ "$FLAGS_allow_self_signed" = "$FLAGS_TRUE" ]; then
+    local stripped_output="$(echo $output | grep -v "self signed certificate")"
+    if [ "$output" != "$stripped_output" ]; then
+      log
+      log "WARNING: This is a self signed certificate."
+      log
+    fi
+
+    output="$stripped_output"
+  fi
+
+  if [ ! -z "$(echo "$output" | grep "error")" ]; then
+    # `openssl verify` exits with a success code even if verification fails,
+    # so we have to grep the output to determine the result of verification.
+    log "Unable to verify certificate authority: $output"
+    return 1
+  fi
+
+  log "This certificate authority has the subject:"
+  log "$(get_subject "$FLAGS_user_var/$CANDIDATE_CA")"
+  log
+
+  read -p ">>> If you trust this certificate authority, type 'I DO': " I_DO_
+
+  if [ "$I_DO_" != "I DO" ]; then
+    log "Canceling CA approval."
+    return 1
+  fi
+
+  rm -f "$FLAGS_user_var/$APPROVED_CA"
+  mv "$FLAGS_user_var/$CANDIDATE_CA" "$FLAGS_user_var/$APPROVED_CA"
+  chmod 440 "$FLAGS_user_var/$APPROVED_CA"
+}
+
 log() {
   if [ -t 2 ]; then
-    echo "$@" >&2
+    echo "---" "$@" >&2
   else
-    logger -t SCRIPT -- "$@"
+    if [ -z "$@" ]; then
+      # Don't log blank lines to the system log, they're only useful on ttys.
+      return
+    fi
+
+    logger -t "$SCRIPT" -- "$@"
   fi
 }
 
@@ -273,6 +358,13 @@ get_cn() {
     sed 's:.*/CN=\([^/]\+\).*:\1:'
 }
 
+get_subject() {
+  local cert="$1"
+
+  # Extract the CN from the certificate.
+  openssl x509 -in "$cert" -noout -subject | sed 's:^subject=\s*\(.*\):\1:'
+}
+
 get_version() {
   local extension="$1"
 
@@ -281,14 +373,19 @@ get_version() {
 
 # Search through the given path for one and only one enterprise extension.
 find_extension() {
-  local path="$1"
+  local path="$(readlink -f "$1")"
+  local depth="$2"
+
+  if [ -z "$depth" ]; then
+    depth=3
+  fi
 
   if [ ! -d "$path" ]; then
     log "Extension path is not a directory: $path"
     return
   fi
 
-  local candidates="$(find -L "$path" -mindepth 3 -maxdepth 3 \
+  local candidates="$(find -L "$path" -mindepth $depth -maxdepth $depth \
     -name isa-cros-policy)"
 
   if [ -z "$candidates" ]; then
@@ -296,7 +393,6 @@ find_extension() {
     return
   fi
 
-  
   if [ "$(echo "$candidates" | wc -w)" != "1" ]; then
     log "Multiple enterprise policies found in $path: $candidates";
     return
@@ -364,7 +460,6 @@ make_catfile() {
     fi
   done
 
-  
   echo "$catfile"
 }
 
@@ -372,12 +467,13 @@ make_catfile() {
 verify_cert() {
   local extension="$1"
 
-  local output="$(openssl verify "$extension/$SIGNING_CERT")"
-
-  if [ "$FLAGS_allow_self_signed" = "$FLAGS_TRUE" ]; then
-    log "WARNING: Allowing self signed certificates"
-    output="$(echo $output | grep -v "self signed certificate")"
+  if [ ! -f "$FLAGS_user_var/$APPROVED_CA" ]; then
+    log "Cannot verify cert: No approved enterprise certificate authority."
+    return 1
   fi
+
+  local output="$(openssl verify -CAfile "$FLAGS_user_var/$APPROVED_CA" \
+    "$extension/$SIGNING_CERT")"
 
   if [ ! -z "$(echo "$output" | grep "error")" ]; then
     # `openssl verify` exits with a success code even if verification fails,
@@ -403,7 +499,6 @@ verify_signature() {
   # Extract the public key from the certificate.
   local keyfile="$(mktemp)"
 
-  log "Extracting public key from $extension/$SIGNING_CERT"
   openssl x509 -in "$extension/$SIGNING_CERT" -pubkey -noout > "$keyfile"
   local result=$?
 
@@ -431,9 +526,9 @@ verify_signature() {
   rm "$catfile" "$keyfile"
 
   if [ "$result" != "0" ]; then
-    log "Signature $sigfile did not validate: $output"
+    log "Signature did not validate: $output"
   else
-    log "Signature $sigfile is valid"
+    log "Signature is valid"
   fi
 
   return $result
