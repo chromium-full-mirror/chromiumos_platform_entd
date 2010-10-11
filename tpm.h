@@ -24,6 +24,10 @@ class Tpm : public Scriptable<Tpm> {
                                          const v8::AccessorInfo& info);
   static v8::Handle<v8::Value> IsReady(v8::Local<v8::String> property,
                                        const v8::AccessorInfo& info);
+  static v8::Handle<v8::Value> IsOwned(v8::Local<v8::String> property,
+                                       const v8::AccessorInfo& info);
+  static v8::Handle<v8::Value> IsBeingOwned(v8::Local<v8::String> property,
+                                            const v8::AccessorInfo& info);
 };
 
 }  // namespace entd

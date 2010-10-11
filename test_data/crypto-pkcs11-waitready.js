@@ -11,7 +11,7 @@ function tryAgain() {
     println("Got unexpected Pkcs11 object: " + pkcs11);
 
   var str = pkcs11.toString();
-  if (str != "[object entd.Pkcs11]")
+  if (str != "[object entd.crypto.Pkcs11]")
       println("pkcs11 has unexpected toString result: " + str);
 
   println("pkcs11: " + str);
