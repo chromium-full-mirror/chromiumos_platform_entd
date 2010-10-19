@@ -29,6 +29,7 @@ const int kSyslogCritical = LOG_CRIT;
 
 #include "entd/entd.h"
 #include "entd/extensions.h"
+#include "entd/callback_server.h"
 #include "entd/http.h"
 #include "entd/pkcs11.h"
 #include "entd/utils.h"
@@ -69,6 +70,8 @@ static const char *kEnableSyslog = "enable-syslog";
 static const char *kDisableSyslog = "disable-syslog";
 
 static const char *kLibcrosLocation = "libcros-location";
+
+static const char *kCallbackOrigin = "callback-origin";
 
 }  // namespace switches
 
@@ -205,6 +208,13 @@ int main(int argc, char** argv) {
   if (cl->HasSwitch(switches::kDisableOpencryptoki)) {
     LOG(INFO) << "Disabling opencryptoki.";
     entd::Pkcs11::enable_opencryptoki = false;
+  }
+
+  if (cl->HasSwitch(switches::kCallbackOrigin)) {
+    entd::CallbackServer::required_origin = cl->GetSwitchValueASCII(
+        switches::kCallbackOrigin);
+    LOG(INFO) << "Setting callback origin: " <<
+        entd::CallbackServer::required_origin;
   }
 
   entd::Entd d;

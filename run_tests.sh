@@ -201,10 +201,35 @@ function slow_tests() {
     curl --data-binary '{"function": "stop"}' \
     -H "Content-Type: application/json; charset=UTF-8" \
     -H "X-Entd-Request: test-magic" \
+    -H "Origin: test-origin" \
     localhost:5200/dispatch -so /dev/null) &
 
-  # Then start up the callback server before the timeout fires.
-  greptest "simple-callback.js" "Stopping callback server"
+  # Then start up the callback server before the timeout fires.  This tests
+  # that we can successfully talk to the callback server, and that it respects
+  # valid X-Entd-Request and Origin headers.
+  greptest "simple-callback.js --callback-origin=test-origin" \
+    "Stopping callback server"
+
+  # Now fire off a bg task to make an http request with a bogus Origin header.
+  (sleep 2; \
+    curl --data-binary '{"function": "stop"}' \
+    -H "Content-Type: application/json; charset=UTF-8" \
+    -H "X-Entd-Request: test-magic" \
+    -H "Origin: bogus-origin" \
+    localhost:5200/dispatch -so /dev/null) &
+
+  # And another one that will actually stop the process.
+  (sleep 3; \
+    curl --data-binary '{"function": "stop"}' \
+    -H "Content-Type: application/json; charset=UTF-8" \
+    -H "X-Entd-Request: test-magic" \
+    -H "Origin: test-origin" \
+    localhost:5200/dispatch -so /dev/null) &
+
+  # Then start up the callback server before the timeouts fire.  This tests
+  # that the bogus Origin header is properly rejected.
+  greptest "simple-callback.js --callback-origin=test-origin" \
+    "Bad or missing Origin header"
 }
 
 function all_tests() {

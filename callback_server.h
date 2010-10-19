@@ -88,6 +88,8 @@ class CallbackServer : public JSObjectWrapper<CallbackServer> {
   };
   virtual bool IsBusy() { return busy_; }
 
+  static std::string required_origin;
+
  private:
   // State for SetBusy/IsBusy.
   bool busy_;

@@ -126,6 +126,8 @@ void dispatch_SetRequestHeaderValue(v8::Local<v8::String> name,
 
 }  // namespace
 
+std::string CallbackServer::required_origin = "";
+
 CallbackServer::CallbackServer(Entd* entd)
     : busy_(false),
       entd_(entd),
@@ -188,6 +190,17 @@ void CallbackServer::OnRequest(struct evhttp_request* request) {
     LOG(ERROR) << "Bad or missing X-Entd-Request header";
     evhttp_send_error(request, kHttpBadRequest, "Bad X-Entd-Request header");
     return;
+  }
+
+  if (!CallbackServer::required_origin.empty()) {
+    header = evhttp_find_header(request->input_headers, "Origin");
+    if (!header ||
+        strcmp(CallbackServer::required_origin.c_str(), header) != 0) {
+      LOG(ERROR) << "Bad or missing Origin header: " << header;
+      evhttp_send_error(request, kHttpBadRequest,
+                        "Bad or missing Origin header");
+      return;
+    }
   }
 
   // Check the length of the request entity.  Libevent has already read it

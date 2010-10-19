@@ -250,9 +250,11 @@ cmd_start() {
     root_ca_option="--root-ca-file=$extension/$ROOT_CA_FILE"
   fi
 
+  local extid="$(basename $(dirname "$extension"))"
+
   exec "$FLAGS_entd" --utility="$FLAGS_utility" "$root_ca_option" \
     --policy="$extension/policy.js" --manifest="$extension/manifest.json" \
-    --username="$FLAGS_username"
+    --username="$FLAGS_username" --callback-origin=chrome-extension://"$extid"
 }
 
 cmd_disapprove() {
