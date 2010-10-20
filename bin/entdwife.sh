@@ -241,6 +241,17 @@ cmd_verify() {
 cmd_start() {
   local extension="$1"
 
+  if [ -z "$FLAGS_username" ]; then
+    log "Can't start enterprise daemon, no username provided."
+    return 1
+  fi
+
+  local domain="$(echo "$FLAGS_username" | cut -f2 -d'@')"
+  if [ "$domain" = "gmail.com" ]; then
+    log "Enterprise daemon disabled for gmail.com users."
+    return 1
+  fi
+
   if ! cmd_verify "$extension"; then
     return 1
   fi
