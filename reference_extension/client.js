@@ -147,10 +147,22 @@ function loadInfo() {
             tpmError = true;
           }
         } else if (retval.data.isLibcrosLoaded && !retval.data.tpm.isReady) {
+
           if (!tpmError) {
-            client.showAlert("Your TPM is not owned.  If this message does " +
-                             "not go away on its own after a minute, you " +
-                             "should reboot and clear your TPM in the BIOS.");
+            var options = { details: JSON.stringify(retval.data.tpm) };
+            if (retval.data.tpm.isBeingOwned) {
+              client.showAlert('Please wait while your TPM is owned.  This ' +
+                               'dialog should go away on its own when the ' +
+                               'process completes.', 'Alert', options);
+            } else if (!retval.data.tpm.isEnabled) {
+              client.showError('Your TPM is not enabled.  Please enable it ' +
+                               'in your BIOS settings.', 'Error', options);
+            } else {
+              client.showError('Your TPM is not properly configured.  Please ' +
+                               'clear your TPM and try again.', 'Error',
+                               options);
+            }
+
             $('#entd-message').
               text('Waiting for TPM.').
               attr('status', 'red');
@@ -173,9 +185,9 @@ function loadInfo() {
         if (document.location.search.match(/reload/)) {
           msg = 'Please wait while the Enterprise Daemon restarts.';
         } else {
-          msg = 'The Enterprise Daemon has not started.  You must log out or ' +
-              'reboot after installing the policy.  If the problem persists, ' +
-              'try clearing your TPM in the BIOS.';
+          msg = 'The Enterprise Daemon has not started.  Make sure you have ' +
+              'approved an enterprise certificate authority, and log out or ' +
+              'reboot after installing the policy and approving.';
         }
 
         client.showError(msg, 'Error', { details: JSON.stringify(retval) } );

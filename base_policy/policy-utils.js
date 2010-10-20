@@ -1031,6 +1031,10 @@ function cb_info() {
    tpm: {
      isReady: (entd.isLibcrosLoaded ? entd.tpm.isReady : true),
      isEnabled: (entd.isLibcrosLoaded ? entd.tpm.isEnabled : true),
+     isOwned: (entd.isLibcrosLoaded ? entd.tpm.isOwned : true),
+     isBeingOwned: (entd.isLibcrosLoaded ? entd.tpm.isBeingOwned : false),
+     statusString: (entd.isLibcrosLoaded ? entd.tpm.statusString :
+                    "libcros not loaded"),
    },
    pkcs11: {
      state: this.policy.pkcs11.state,

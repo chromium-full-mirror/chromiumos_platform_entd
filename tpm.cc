@@ -46,6 +46,13 @@ bool Tpm::InitializeTemplate(
                           v8::DEFAULT,  // DEFAULT AccessControl
                           v8::DontDelete);
 
+  instance_t->SetAccessor(v8::String::New("statusString"),
+                          Tpm::GetStatusString,
+                          0,  // readonly, so setter is NULL
+                          v8::Handle<v8::Value>(),  // Don't need any data.
+                          v8::DEFAULT,  // DEFAULT AccessControl
+                          v8::DontDelete);
+
   return true;
 }
 
@@ -83,6 +90,17 @@ v8::Handle<v8::Value> Tpm::IsBeingOwned(v8::Local<v8::String> property,
     return v8::False();
 
   return v8::Boolean::New(chromeos::CryptohomeTpmIsBeingOwned());
+}
+
+// static
+v8::Handle<v8::Value> Tpm::GetStatusString(v8::Local<v8::String> property,
+                                           const v8::AccessorInfo& info) {
+  if (!Entd::LibcrosLoadedOrThrow())
+    return v8::Undefined();
+
+  std::string status;
+  chromeos::CryptohomeGetStatusString(&status);
+  return v8::String::New(status.c_str());
 }
 
 }  // namespace entd
