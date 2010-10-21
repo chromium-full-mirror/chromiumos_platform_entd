@@ -21,6 +21,7 @@ REQUIRED_TO_SIGN="isa-cros-policy manifest.json policy.js $SIGNING_CERT"
 REQUIRED_TO_START="$REQUIRED_FOR_SIGN $SIGNED_DIGEST"
 APPROVED_CA="approved-ca.pem"
 CANDIDATE_CA="candidate-ca.pem"
+ALLOW_CHAINING_FILE="chaining-allowed"
 
 . "/usr/lib/shflags" || (echo "error loading shflags"; exit 1)
 
@@ -50,6 +51,9 @@ DEFINE_string output "$(pwd)" \
   "Destination directory or filename for crx files" "o"
 DEFINE_string user_var "$HOME/var/entd/" \
   "Directory to store user specific state" "V"
+DEFINE_boolean allow_chaining $FLAGS_FALSE \
+  "Allow the extensions to be signed by a cert which chains to the approved \
+cert (this option only matters when approving a cert)."
 
 FLAGS "$@" || exit $?
 eval set -- "${FLAGS_ARGV}"
@@ -340,6 +344,16 @@ cmd_approve() {
   rm -f "$FLAGS_user_var/$APPROVED_CA"
   mv "$FLAGS_user_var/$CANDIDATE_CA" "$FLAGS_user_var/$APPROVED_CA"
   chmod 440 "$FLAGS_user_var/$APPROVED_CA"
+
+  if [ "$FLAGS_allow_chaining" = "$FLAGS_TRUE" ]; then
+    log "Enabling chaining for this CA."
+    touch "$FLAGS_user_var/$ALLOW_CHAINING_FILE"
+    chmod 440 "$FLAGS_user_var/$ALLOW_CHAINING_FILE"
+  else
+    rm -f "$FLAGS_user_var/$ALLOW_CHAINING_FILE"
+  fi
+
+  log "CA approval complete."
 }
 
 log() {
@@ -485,14 +499,23 @@ verify_cert() {
     return 1
   fi
 
-  local output="$(openssl verify -CAfile "$FLAGS_user_var/$APPROVED_CA" \
-    "$extension/$SIGNING_CERT")"
-
-  if [ ! -z "$(echo "$output" | grep "error")" ]; then
-    # `openssl verify` exits with a success code even if verification fails,
-    # so we have to grep the output to determine the result of verification.
-    log "Unable to verify certificate: $output"
-    return 1
+  if [ -f "$FLAGS_user_var/$ALLOW_CHAINING_FILE" ]; then
+    log "Checking certificate chain."
+    local output="$(openssl verify -CAfile "$FLAGS_user_var/$APPROVED_CA" \
+      "$extension/$SIGNING_CERT" 2>&1)"
+    if [ ! -z "$(echo "$output" | grep -i "error")" ]; then
+      # `openssl verify` exits with a success code even if verification fails,
+      # so we have to grep the output to determine the result of verification.
+      log "Unable to verify certificate: $output"
+      return 1
+    fi
+  else
+    log "Checking for exact certificate match."
+    if [ "$(cat "$FLAGS_user_var/$APPROVED_CA")" != \
+         "$(cat "$extension/$SIGNING_CERT")" ]; then
+      log "Approved cert does not match signing cert."
+      return 1
+    fi
   fi
 }
 
