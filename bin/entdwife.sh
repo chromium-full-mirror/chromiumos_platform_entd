@@ -298,7 +298,7 @@ cmd_approve() {
   mkdir -p "$FLAGS_user_var"
   rm -f "$FLAGS_user_var/$CANDIDATE_CA"
 
-  wget -nv "$ca_url" -O "$FLAGS_user_var/$CANDIDATE_CA"
+  curl -sS "$ca_url" -o "$FLAGS_user_var/$CANDIDATE_CA"
 
   if [ ! -s "$FLAGS_user_var/$CANDIDATE_CA" ]; then
     log "Error fetching candidate CA file."
