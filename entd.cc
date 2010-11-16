@@ -627,6 +627,8 @@ bool Entd::StopScriptingEnvironment() {
     }
   }
 
+  crypto::Pkcs11::Finalize();
+
   return true;
 }
 

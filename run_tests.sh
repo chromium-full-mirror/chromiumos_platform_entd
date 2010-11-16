@@ -184,6 +184,7 @@ function crypto_pkcs11_tests() {
   greptest "crypto-pkcs11-ctors.js" "LOOKS OK"
   greptest "crypto-pkcs11-slots.js" "LOOKS OK"
   greptest "crypto-pkcs11-inittoken.js" "LOOKS OK"
+  greptest "crypto-pkcs11-finalize.js" "Finalizing PKCS11 API"
 
   # The old-skool pkcs11 tests rely on the inittoken test to set the SO and
   # user PINs correctly.

@@ -21,6 +21,10 @@ namespace crypto {
 class Pkcs11 : public Scriptable<Pkcs11> {
  public:
   static const std::string class_name() { return "entd.crypto.Pkcs11"; };
+  static void Finalize() {
+    LOG(INFO) << "Finalizing PKCS11 API.";
+    C_Finalize(NULL);
+  };
 
   class Token : public Scriptable<Token> {
    public:

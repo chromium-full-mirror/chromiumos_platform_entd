@@ -4,12 +4,9 @@
 
 entd.onLoad = function () {
   var pkcs11 = new entd.crypto.Pkcs11();
-  } catch (ex) {
-    if (!ex.toString().match(/PKCS#11 error/i)) {
-      println("Got unexpected exception: " + ex);
-      return;
-    }
-  }
+  println("pkcs11: " + pkcs11);
 
-  entd.setTimeout(tryAgain, 3000);
+  // This test only watches for the "Finalizing PKCS11 API" message that should
+  // appear on exit.  This has to happen in the test driver, since the message
+  // is emitted after V8 is shut down.
 }
