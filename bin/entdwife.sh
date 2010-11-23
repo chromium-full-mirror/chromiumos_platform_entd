@@ -78,6 +78,8 @@ main() {
     return $?
   fi
 
+  log "Username: ${FLAGS_username}"
+
   if [ -z "$extension" ]; then
     extension="$(find_extension "$FLAGS_extension_path")"
   fi
