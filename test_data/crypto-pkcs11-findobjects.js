@@ -110,7 +110,8 @@ function testFindKey(session, key_to_find_id, key_to_find_label, key_type) {
   }
   try {
     // Fail search for ID.
-    var result = findObjects(session, key_to_find_id + "AA", null, key_type) || null;
+    var result = findObjects(session, key_to_find_id + "AA", null, 
+                             key_type) || null;
     if (result != null && result.length != 0)
       return println("Expect not to find public key (bad id)");
   } catch(ex) {
@@ -118,7 +119,8 @@ function testFindKey(session, key_to_find_id, key_to_find_label, key_type) {
   }
   try {
     // Fail search for label.
-    var result = findObjects(session, key_to_find_id, key_to_find_label + "BAD", key_type) || null;
+    var result = findObjects(session, key_to_find_id, 
+                             key_to_find_label + "BAD", key_type) || null;
     if (result != null && result.length != 0)
       return println("Expect not to find public key (bad label)");
   } catch(ex) {

@@ -189,6 +189,10 @@ function crypto_pkcs11_tests() {
   greptest "crypto-pkcs11-createdestroyobject.js" "LOOKS OK"
   greptest "crypto-pkcs11-finalize.js" "Finalizing PKCS11 API"
 
+  # OpenSSL tests
+  greptest "crypto-openssl-newcsr.js" "LOOKS OK"
+  greptest "crypto-openssl-x509.js" "LOOKS OK"
+
   # The old-skool pkcs11 tests rely on the inittoken test to set the SO and
   # user PINs correctly.
 }

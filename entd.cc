@@ -19,6 +19,7 @@
 #include "entd/flimflam.h"
 #include "entd/http.h"
 #include "entd/pkcs11.h"
+#include "entd/crypto_openssl.h"
 #include "entd/crypto_pkcs11.h"
 #include "entd/scriptable.h"
 #include "entd/syslog.h"
@@ -28,6 +29,7 @@
 namespace entd {
 
 using std::string;
+static const char* kOpenSSLConfigName = "entd";
 
 void dispatch_OnTimeout(int fd, short flags, void* arg);
 
@@ -421,9 +423,13 @@ v8::Handle<v8::Object> Entd::ConstructEntd() {
   v8::Handle<v8::Object> crypto_obj = v8::Object::New();
   entd->Set(v8::String::NewSymbol("crypto"), crypto_obj);
 
-  // Hook up the new entd.crypto.Pkcs11 constructor
+  // Hook up the entd.crypto.Pkcs11 constructor.
   crypto_obj->Set(v8::String::NewSymbol("Pkcs11"),
                   crypto::Pkcs11::constructor_template()->GetFunction());
+
+  // Hook up the entd.crypto.OpenSSL constructor.
+  crypto_obj->Set(v8::String::NewSymbol("OpenSSL"),
+                  crypto::OpenSSL::constructor_template()->GetFunction());
 
   // Build the (soon-to-be-deprecated) entd.pkcs11 object
   pkcs11_.reset(new Pkcs11());
@@ -573,6 +579,11 @@ bool Entd::StartScriptingEnvironment() {
 
   LOG(INFO) << "Policy loaded.";
 
+  if (!crypto::OpenSSL::StaticInitialize(kOpenSSLConfigName)) {
+    LOG(ERROR) << "Failed to initialize OpenSSL.";
+    return false;
+  }
+
   // Fire the onLoad event.
   if (entd->Has(v8::String::NewSymbol("onLoad"))) {
     v8::TryCatch try_catch;
@@ -628,6 +639,9 @@ bool Entd::StopScriptingEnvironment() {
   }
 
   crypto::Pkcs11::Finalize();
+
+  // Unload OpenSSL modules.
+  crypto::OpenSSL::StaticFinalize();
 
   return true;
 }

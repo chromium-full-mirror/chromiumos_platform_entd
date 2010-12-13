@@ -1071,7 +1071,7 @@ bool Pkcs11::Object::Initialize(const CK_SESSION_HANDLE& session_handle,
   return true;
 }
 
-// static.
+// static
 bool Pkcs11::Object::InitializeTemplate(
     v8::Handle<v8::FunctionTemplate> ctor_t) {
   // Attributes.

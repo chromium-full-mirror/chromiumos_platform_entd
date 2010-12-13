@@ -84,7 +84,7 @@ entd.onLoad = function () {
     session = token.openSession(Token.CKF_RW_SESSION);
   } catch (ex) {
     println('Unable to open session: ' + ex);
-    return false;
+  return false;
   }
 
   if (!(session instanceof Session))
