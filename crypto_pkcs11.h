@@ -131,7 +131,8 @@ class Pkcs11 : public Scriptable<Pkcs11> {
         C_CloseSession(session_handle_);
     }
 
-    bool Initialize(CK_SLOT_ID slot_id, CK_SESSION_HANDLE session_handle);
+    bool Initialize(const CK_SLOT_ID slot_id,
+                    const CK_SESSION_HANDLE& session_handle);
     static bool InitializeTemplate(v8::Handle<v8::FunctionTemplate> ctor_t);
 
     v8::Handle<v8::Value> Construct(const v8::Arguments& args) {
@@ -149,6 +150,7 @@ class Pkcs11 : public Scriptable<Pkcs11> {
     v8::Handle<v8::Value> SetPin(const v8::Arguments& args);
     v8::Handle<v8::Value> FindObjects(const v8::Arguments& args);
     v8::Handle<v8::Value> CreateObject(const v8::Arguments& args);
+    v8::Handle<v8::Value> GenerateKeyPair(const v8::Arguments& args);
 
     // Invoke the 'bool Refresh()' method from script.
     v8::Handle<v8::Value> CallRefresh(const v8::Arguments& args);
@@ -156,6 +158,31 @@ class Pkcs11 : public Scriptable<Pkcs11> {
    private:
     CK_SLOT_ID slot_id_;
     CK_SESSION_HANDLE session_handle_;
+  };
+
+  class Object : public Scriptable<Object> {
+   public:
+    static const std::string class_name() {
+      return "entd.crypto.Pkcs11.Object";
+    };
+
+    Object() : session_handle_(0), object_handle_(0) {}
+    ~Object() {}
+
+    bool Initialize(const CK_SESSION_HANDLE& session_handle,
+                    const CK_OBJECT_HANDLE& object_handle);
+    static bool InitializeTemplate(v8::Handle<v8::FunctionTemplate> ctor_t);
+
+    v8::Handle<v8::Value> Construct(const v8::Arguments& args) {
+      return ThrowNoScriptableConstructor();
+    }
+
+    // Stubs for PKCS#11 C_* functions of the same name.
+    v8::Handle<v8::Value> DestroyObject(const v8::Arguments& args);
+
+   private:
+    CK_SESSION_HANDLE session_handle_;
+    CK_OBJECT_HANDLE object_handle_;
   };
 
   bool Initialize();
