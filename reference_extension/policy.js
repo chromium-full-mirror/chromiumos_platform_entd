@@ -21,17 +21,17 @@ function onLoad(manifest) {
   // the array located at manifest.policyParams.certs.  The array
   // should contain a list of "local identifiers" as defined below.
   policy.addCertificate(
-      // Local identifier for the certificate, not persisted to the TPM
+      // Local identifier for the certificate, not persisted to the TPM.
       "wifi",
-      { // Human readable label associated with this cert in the TPM
+      { // Human readable label associated with this cert in the TPM.
         label: "802.11x Wireless",
+
+        // Object ID associated with this cert in the TPM.
+        id: 1,
 
         // This function will be called when the certificate is successfully
         // installed.
         "onInstall": util.fwdp(policy, "onWifiCertInstalled"),
-
-        // The pkcs#11 slot id to store the cert in.
-        pkcs11slot: "1",
 
         // List of variables that the user may provide.  Value is a list of
         // attributes that will be used to render the input widget for
@@ -73,11 +73,11 @@ function onLoad(manifest) {
 
   policy.addCertificate(
       "vpn",
-      { // Human readable label associated with this cert in the TPM
+      { // Human readable label associated with this cert in the TPM.
         label: "Virtual Private Network (VPN)",
 
-        // The pkcs#11 slot id to store the cert in.
-        pkcs11slot: "2",
+        // Object ID associated with this cert in the TPM.
+        id: 2,
 
         // List of variables that the user may provide.  Value is a list of
         // attributes that will be used to render the input widget for

@@ -127,10 +127,10 @@ function loadInfo() {
         if (!pkcs11Error) {
           pkcs11Error = true;
           client.showError(
-              'PKCS#11 services have not started, you may need to clear your ' +
-              'TPM to recover.', 'Error',
-              { details: 'current state: ' + pkcs11.state + '\n' +
-                    pkcs11.log });
+            'PKCS#11 services have not started, you may need to clear your ' +
+            'TPM to recover.', 'Error',
+            { details: 'current state: ' + pkcs11.state + '\n' +
+              pkcs11.log });
         }
       } else {
         $("#pkcs11-status").
@@ -147,7 +147,6 @@ function loadInfo() {
             tpmError = true;
           }
         } else if (retval.data.isLibcrosLoaded && !retval.data.tpm.isReady) {
-
           if (!tpmError) {
             var options = { details: JSON.stringify(retval.data.tpm) };
             if (retval.data.tpm.isBeingOwned) {
@@ -172,11 +171,13 @@ function loadInfo() {
           ready = true;
         }
       }
-
     } else {
       $("#entd-status").
-          text('Waiting...').
-          attr('status', 'red');
+        text('Waiting...').
+        attr('status', 'red');
+
+      $("#pkcs11-status").
+        text('Unknown');
 
       if (!daemonError) {
         daemonError = true;
@@ -276,6 +277,7 @@ function loadCertificates() {
 client.installCert =
 function installCert(cert, variables) {
   var key = cert.key;
+  var isInstallComplete = false;
 
   // Called for any kind of error from the enterprise daemon.
   function onerror(retval) {
@@ -288,6 +290,9 @@ function installCert(cert, variables) {
           client.showError(retval.data, 'Error',
                            { details: JSON.stringify(retval) });
         });
+    } else {
+      // Status changes are known via certificate status.  Refreshing.
+      client.invokePolicyCallback('listCertificates', null, oncomplete_list);
     }
   };
 
@@ -301,22 +306,30 @@ function installCert(cert, variables) {
     if (!cert)
       return alert("No cert: " + key);
 
-    if (cert.state == 'stop:csr') {
+    if (cert.state == 'stop:key') {
+      // Key generation is done, proceed to CSR generation.
+      $('#cert-status').find('.cert-key').attr('status', 'green');
+      $('#cert-status').find('.cert-csr').attr('status', 'progress');
+    } else if (cert.state == 'stop:csr') {
       // CSR is done, now fetch the cert.
+      $('#cert-status').find('.cert-key').attr('status', 'green');
       $('#cert-status').find('.cert-csr').attr('status', 'green');
       $('#cert-status').find('.cert-request').attr('status', 'progress');
       client.invokePolicyCallback('getCert', { certificateId: cert.id },
                                   onerror);
     } else if (cert.state == 'stop:cert') {
-      // Cert is fetched, configure the network
+      // Cert is fetched, configure the network.
       $('#cert-status').find('.cert-request').attr('status', 'green');
       $('#cert-status').find('.cert-install').attr('status', 'progress');
       client.invokePolicyCallback('installCert', { certificateId: cert.id },
                                   onerror);
     } else if (cert.state == 'stop:ready') {
       $('#cert-status').find('.cert-install').attr('status', 'green');
-      client.showSuccess('Your certificate has been installed',
-                         'Certificate Installed');
+      if (!isInstallComplete) {
+        isInstallComplete = true;
+        client.showSuccess('Your certificate has been installed',
+                           'Certificate Installed');
+      }
       return;
     } else if (cert.state == 'stop:error') {
       client.showCertDetails(cert);
@@ -331,13 +344,11 @@ function installCert(cert, variables) {
 
   client.showCertProgress(cert);
 
-  $('#cert-status').find('.cert-csr').attr('status', 'progress');
+  $('#cert-status').find('.cert-key').attr('status', 'progress');
 
   client.invokePolicyCallback(
       'initiateCSR', { certificateId: cert.id, variables: variables },
       onerror);
-
-  client.invokePolicyCallback('listCertificates', null, oncomplete_list);
 }
 
 /**
@@ -375,7 +386,6 @@ function initToken(token, force) {
       // Initialization is done, reset the SO pin.
       $('.status.token-init').attr('status', 'green');
       $('.status.token-so').attr('status', 'progress');
-      client.loadCertificates();
       client.invokePolicyCallback('setSoPin', { slotId: token.slotId },
                                   onerror);
     } else if (token.state == 'stop:so-pin') {
@@ -390,6 +400,7 @@ function initToken(token, force) {
       client.showSuccess('The PKCS#11 token has been successfully ' +
                          'initialized. You may now install certificates.',
                          'Token Initialized');
+      client.onPkcs11Ready();
       return;
     } else if (token.state == 'stop:error') {
       // If the token failed to initialize, it might be left in a broken
@@ -677,7 +688,7 @@ client.showSuccess =
 function showSuccess(message, title, options) {
   if (client.isModalVisible()) {
     client.hideModal(function () {
-        client.showSuccess(message, title, options)
+      client.showSuccess(message, title, options)
     });
     return;
   }
@@ -840,7 +851,7 @@ function showCertQuery(cert) {
  * Called when the 'Submit' button is clicked on the cert dialog.
  */
 client.onCertSubmit_ =
-function onCertCancel() {
+function onCertSubmit() {
   var cert = client.modalContext.cert;
 
   var variables = {};
@@ -893,7 +904,6 @@ client.refreshTokens =
 function refreshTokens(tokens) {
   for (var i = 0; i < tokens.length; ++i) {
     var rv = $('#token-' + tokens[i].slotId);
-
     if (rv[0]) {
       client.refreshToken(rv[0], tokens[i]);
     } else {

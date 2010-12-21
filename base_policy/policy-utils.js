@@ -16,6 +16,15 @@
 const Slot = entd.crypto.Pkcs11.Slot;
 const Token = entd.crypto.Pkcs11.Token;
 const Session = entd.crypto.Pkcs11.Session;
+const PkObject = entd.crypto.Pkcs11.Object;
+const CSR = entd.crypto.OpenSSL.CSR;
+const X509 = entd.crypto.OpenSSL.X509;
+
+// PKCS#11 to use for token management.
+Policy.OPENSSL_ENGINE = 'pkcs11';
+
+// PKCS#11 slot index to use.
+Policy.PKCS11_SLOT = 0;
 
 entd.verifyManifest =
 function verifyManifest(manifest) {
@@ -80,7 +89,7 @@ function Policy(manifest) {
   this.info('Initializing: ' + manifest.description);
   this.info('Current user: ' + entd.username);
 
-  // Certificate definitions to be populated later by this.addCertificate()
+  // Certificate definitions to be populated later by this.addCertificate().
   this.certificates = {};
 
   // Save off the entire manifest in case we need it later.
@@ -306,14 +315,14 @@ function getVariable(name, opt_default) {
 /**
  * Add a certificate definition to this policy.
  *
- * @param {string} id An identifier for the certificate definition.
+ * @param {string} type An identifier for the certificate definition.
  * @param {Object} params The parameters for this certificate.  See the
  *     documentation for the Policy.Certificate constructor for details.
  */
 Policy.prototype.addCertificate =
-function addCertificate(id, params) {
-  var cert = new Policy.Certificate(this, id, params);
-  this.certificates[util.toKey(id)] = cert;
+function addCertificate(type, params) {
+  var cert = new Policy.Certificate(this, type, params);
+  this.certificates[util.toKey(type)] = cert;
   return cert;
 };
 
@@ -337,21 +346,15 @@ function initPkcs11() {
   this.info('Initializing PKCS11 library, attempt: ' +
             this.pkcs11.initCount);
 
-  if (entd.pkcs11.isReady) {
-    this.info('entd.pkcs11 is ready.');
-
-    try {
-      this.pkcs11.api = new entd.crypto.Pkcs11();
-      this.info('entd.cryto.Pkcs11 initialized.');
-    } catch (ex) {
-      this.error('PKCS11 library failed to initialize: ' + ex);
-      this.pkcs11.error = ex;
-    }
-  } else {
-    this.pkcs11.error = this.info('entd.pkcs11 is not ready.');
+  try {
+    this.pkcs11.api = new entd.crypto.Pkcs11();
+    this.info('entd.cryto.Pkcs11 initialized.');
+  } catch (ex) {
+    this.error('PKCS11 library failed to initialize: ' + ex);
+    this.pkcs11.error = ex;
   }
 
-  if (this.pkcs11.api == null) {
+  if (!this.pkcs11.api) {
     // Initialization failed, try again in a second.
     entd.setTimeout(util.bindp(this, "initPkcs11"), 1000);
     return false;
@@ -378,7 +381,11 @@ function initPkcs11() {
     }
   }
 
+  var engine = new entd.crypto.OpenSSL.Engine(Policy.OPENSSL_ENGINE);
+  this.engine = engine;
+
   this.stop(this.pkcs11, 'ready');
+  this.info('pkcs#11 ready');
 
   return true;
 }
@@ -406,7 +413,7 @@ function checkToken(token) {
  * This performs *only* the token initialization.  Callers must also reset
  * the SO and User PINs before the token is usable.
  *
- * @param {entd.Pkcs11.Token} token The token to initialize.
+ * @param {entd.crypto.Pkcs11.Token} token The token to initialize.
  * @param {string} tokenLabel Optional.  The label to assign to the new token.
  */
 Policy.prototype.initToken =
@@ -444,11 +451,6 @@ function initToken(token, tokenLabel) {
     return;
   }
 
-  // Token is now blank, but the entd.pkcs11 code needs a little push to
-  // realize it.
-  for (var key in entd.pkcs11.slots)
-    delete entd.pkcs11.slots[key];
-
   // Also, all of the certificate objects need to have their state reset.
   for (var key in this.certificates)
     this.certificates[key].state = 'stop:unknown';
@@ -464,7 +466,7 @@ function initToken(token, tokenLabel) {
  * Logs in to the given token using oldPin, then resets the pin to newPin and
  * logs out.
  *
- * @param {entd.Pkcs11.Token} token The target token.
+ * @param {entd.crypto.Pkcs11.Token} token The target token.
  * @param {int} userType The type of user to reset.  Either Session.CKU_SO or
  *   Session.CKU_USER.
  * @param {string} oldPin The current PIN for this user.
@@ -473,7 +475,7 @@ function initToken(token, tokenLabel) {
  * @return {boolean} True if the operation succeeded, false otherwise.
  */
 Policy.prototype.setTokenPin =
-function initTokenPins(token, userType, oldPin, newPin) {
+function setTokenPins(token, userType, oldPin, newPin) {
   var pinType = (userType == Session.CKU_SO ? 'so' : 'user') + '-pin';
   this.start(token, pinType, 'Resetting PIN: ' + pinType);
 
@@ -487,19 +489,9 @@ function initTokenPins(token, userType, oldPin, newPin) {
   }
 
   try {
-    token.closeAllSessions();
-    session = token.openSession(Token.CKF_RW_SESSION);
-  } catch (ex) {
-    this.stop(token, 'error', 'Unable to open session: ' + ex);
-    return false;
-  }
-
-  try {
-    if (!session.login(userType, oldPin)) {
-      this.stop(token, 'error', 'Unable to log in using ' + pinType);
-      session.close();
-      return false;
-    }
+    session = this.loginToken(token, userType, oldPin);
+    if (!session)
+      this.stop(token, 'error', 'Failed to login to token');
   } catch (ex) {
     this.stop(token, 'error', 'Exception initializing PIN: ' + ex);
     session.close();
@@ -525,6 +517,49 @@ function initTokenPins(token, userType, oldPin, newPin) {
 
   session.close();
   return true;
+}
+
+/**
+ * Generate a RSA key pair on the PKCS#11 token.
+ *
+ * 'label' and 'id' parameters are user-friendly values that will be applied
+ * to the generated keys.  They can be used later for documentation and/or
+ * key search/match.
+ *
+ * @param {Session} session An open read/write session to the device.
+ * @param {Integer} id Object ID to apply to public and private keys.
+ * @param {String} label Label to apply to public and private keys.
+ *
+ * @return {void} No return value. On failure function throws an exception.
+ */
+Policy.prototype.generateKeyPair =
+function generateKeyPair(session, id, label) {
+  this.info('Generating key pair id: ' + id + ' label: ' + label +
+            ' bits:2048.');
+  session.generateKeyPair(
+    Session.CKM_RSA_PKCS_KEY_PAIR_GEN,
+    [
+      // Public key properties.
+      [PkObject.CKA_ENCRYPT, true],
+      [PkObject.CKA_VERIFY, true],
+      [PkObject.CKA_WRAP, true],
+      [PkObject.CKA_MODULUS_BITS, 2048],
+    ],
+    [
+      // Private key properties.
+      [PkObject.CKA_PRIVATE, true],
+      [PkObject.CKA_SENSITIVE, true],
+      [PkObject.CKA_SIGN, true],
+      [PkObject.CKA_DECRYPT, true],
+      [PkObject.CKA_UNWRAP, true],
+    ],
+    [
+      // Common properties of public & private.
+      [PkObject.CKA_TOKEN, true],
+      [PkObject.CKA_LABEL, label],
+      [PkObject.CKA_ID, id]
+    ]
+  );
 }
 
 /**
@@ -578,22 +613,23 @@ function initTokenPins(token, userType, oldPin, newPin) {
  * See entd.crypto.Certificate() for the conrete certificate class.
  *
  * @param {Policy} policy The parent policy of this certificate definition.
- * @param {string} id An identifier for the certificate definition.
+ * @param {string} type An identifier for the certificate definition.
  * @param {Object} params The parameters for this certificate definition.
  */
 Policy.Certificate =
-function PolicyCertificate(policy, id, params) {
+function PolicyCertificate(policy, type, params) {
   this.policy = policy;
-  this.id = id;
+  this.type = type;
 
-  util.ensureProperties(params, ['label', 'csr', 'issuer'],
-                        'params');
+  // Backwards compatibility.
+  if (!('id' in params)) {
+    params.id = params.key_identifier || 3;
+  }
+
+  util.ensureProperties(params, ['label', 'id', 'csr', 'issuer'], 'params');
 
   this.label = params.label;
-  // Note: key_identifier is ignored if not using the TPM
-  this.key_identifier = params.key_identifier || '3';
-  // Note: key_passphrase is ignored if using the TPM
-  this.key_passphrase = params.key_passphrase || '';
+  this.id = parseInt(params.id);
   this.onInstall = params.onInstall;
 
   util.ensureProperties(params.csr, ['subject', 'host', 'path'], 'params.csr');
@@ -717,13 +753,8 @@ function stop(state, msg) {
 
 Policy.Certificate.prototype.log_ =
 function log_(type, str) {
-  return this.policy[type]('Certificate ' + this.id + ': ' + str);
+  return this.policy[type]('Certificate ' + this.type + ': ' + str);
 };
-
-Policy.Certificate.prototype.findSlotByLabel =
-function findSlotByLabel(label) {
-  return entd.pkcs11.slots[label] || null;
-}
 
 /**
  * Finalize certificate installation and invoke any user specific onInstall
@@ -737,8 +768,8 @@ Policy.Certificate.prototype.onInstall_ =
 function onInstall(firstInstall) {
   this.start('install');
 
-  this.path = 'SETTINGS:key_id=' + this.key_identifier +
-    ',cert_id=' + this.key_identifier +
+  this.path = 'SETTINGS:key_id=' + util.intToHex(this.id) +
+    ',cert_id=' + util.intToHex(this.id) +
     ',pin=' + Policy.PKCS11_USER_PIN;
 
   this.info('Certificate installed to: ' + this.path);
@@ -755,16 +786,181 @@ function onInstall(firstInstall) {
   this.stop('ready');
 };
 
+/*
+ * Opens slot with a private session, using user's PIN.
+ *
+ * @param {Session.CKU_*} userType  Type of session to open.
+ * @param {String} pin  PIN to open the device.
+ * @returns {Session}  Opened session or null if operation failed.
+ */
+Policy.prototype.loginToken =
+function loginToken(token, sessionType, pin) {
+  var pkcs11 = this.pkcs11.api;
+
+  if (!pin) {
+    switch (sessionType) {
+      case Session.CKU_USER:
+        pin = Policy.PKCS11_USER_PIN;
+        break;
+      case Session.CKU_SO:
+        pin = Policy.PKCS11_SO_PIN;
+        break;
+      default:
+        this.error('Unknown user type');
+        return null;
+    }
+  }
+
+  var session = null;
+
+  try {
+    token.closeAllSessions();
+    session = token.openSession(Token.CKF_RW_SESSION);
+  } catch (ex) {
+    this.error('Unable to open session: ' + ex);
+    return null;
+  }
+
+  try {
+    if (!session.login(sessionType, pin)) {
+      this.error('Unable to log in user into token.');
+      session.close();
+      return null;
+    }
+  } catch (ex) {
+    this.error('Failed to login user into token: ' + ex);
+    session.close();
+    return null;
+  }
+
+  return session;
+}
+
 /**
  * Determine if this certificate definition has been successfully installed.
  *
  * @return {boolean} A boolean indicating whether or not this certificate
  *  definition has been successfully installed in the PKCS#11 device.
  */
+Policy.prototype.findObjectById =
+function findObjectById(session, type, id, typeString) {
+  var objList = session.findObjects([[PkObject.CKA_CLASS, type],
+                                     [PkObject.CKA_ID, id]]);
+  if (objList) {
+    switch (objList.length) {
+      case 1:
+        // Found matching object.
+        return objList[0];
+      case 0:
+        // Object not found.
+        return null;
+      default:
+        // Too many objects.
+        this.error('Too many matching objects: ' + typeString);
+        return null;
+    }
+  } else {
+    this.error('error', 'Problem with PKCS#11 token.');
+    return null;
+  }
+};
+
+/**
+ * Fetch a certificate by ID
+ */
+Policy.prototype.findCertificateById =
+function findCertificateById(session, id) {
+  return this.findObjectById(session, PkObject.CKO_CERTIFICATE, id,
+                             'certificates');
+};
+
+/**
+ * Fetch a private key by ID
+ */
+Policy.prototype.findPrivateKeyById =
+function findPrivateKeyById(session, id) {
+  return this.findObjectById(session, PkObject.CKO_PRIVATE_KEY, id,
+                             'private keys');
+};
+
+/**
+ * Remove certificate(s) and key(s) associated with the certificate type
+ */
+Policy.prototype.removeObjectsById =
+function removeObjectsById(session, id) {
+  var types = [PkObject.CKO_CERTIFICATE,
+               PkObject.CKO_PUBLIC_KEY,
+               PkObject.CKO_PRIVATE_KEY];
+
+  this.info('Removing all objects for slot: ' + Policy.PKCS11_SLOT + ' id: ' +
+            id);
+  for (type in types) {
+    var objList = session.findObjects([[PkObject.CKA_CLASS, types[type]],
+                                       [PkObject.CKA_ID, id]]);
+    if (!objList) {
+      this.error('findObjects returned null.');
+      return;
+    }
+
+    for (obj in objList)
+      objList[obj].destroy();
+  }
+}
+
+/**
+ * Store a X.509 PEM encoded certificate in the PKCS#11 device.
+ */
+Policy.Certificate.prototype.storeCertificate =
+function storeCertificate(session, id, label, subject, certificate) {
+  session.createObject(
+    [
+      [PkObject.CKA_LABEL, label],
+      [PkObject.CKA_ID, id],
+      [PkObject.CKA_TOKEN, true],
+      [PkObject.CKA_CLASS, PkObject.CKO_CERTIFICATE],
+      [PkObject.CKA_SUBJECT, subject],
+      [PkObject.CKA_CERTIFICATE_TYPE, PkObject.CKC_X_509],
+      [PkObject.CKA_VALUE, certificate]
+    ]
+  );
+}
+
+/**
+ * Determine if this certificate definition and matching private key has
+ * been successfully installed.
+ *
+ * @return {boolean} A boolean indicating whether or not this certificate
+ *  definition has been successfully installed in the PKCS#11 device.
+ */
 Policy.Certificate.prototype.isInstalled =
 function isInstalled() {
-  var slot = this.findSlotByLabel(this.label);
-  return (slot && ('certificate' in slot));
+  // Check if the corresponding token is accepting commands (this is
+  // important to prevent race conditions when initializing the token,
+  // such as interleaved calls to 'listCertificate' while performing
+  // initialization asynchronously.)
+  var pkcs11 = this.policy.pkcs11.api;
+  var token = pkcs11.slots[Policy.PKCS11_SLOT].token;
+  if (!this.policy.checkToken(token))
+    return false;
+
+  var session = null;
+  try {
+    session = this.policy.loginToken(token, Session.CKU_USER);
+    if (!session)
+      return this.error('Cannot login to token.');
+
+    var cert = policy.findCertificateById(session, this.id);
+    var key = policy.findPrivateKeyById(session, this.id);
+
+    session.close();
+
+    return (cert != null && key != null);
+  } catch(ex) {
+    session.close();
+    this.error('Error checking certificate is installed: ', ex);
+  }
+
+  return false;
 };
 
 /**
@@ -772,8 +968,6 @@ function isInstalled() {
  */
 Policy.Certificate.prototype.initiateCSR =
 function initiateCSR() {
-  this.start('csr', 'Initiating Certificate Signing Request');
-
   // Set up a request object.
   var r = new entd.http.Request(this.csr.host, this.replaceVars(this.csr.path));
 
@@ -789,27 +983,42 @@ function initiateCSR() {
   // Stash this so that we can refer to it later in on onCSRComplete.
   r.certificate = this;
 
+  this.start('key', 'Generating key pair');
+
   // Get the subject from the definition and replace any variable references.
   var subject = this.replaceVars(this.csr.subject);
   this.info('CSR Subject: ' + subject);
 
-  // Set the user pin for the PKCS#11 device
-  entd.pkcs11.setUserPin(Policy.PKCS11_USER_PIN);
+  var pkcs11 = this.policy.pkcs11.api;
+  var token = pkcs11.slots[Policy.PKCS11_SLOT].token;
+  var session = policy.loginToken(token, Session.CKU_USER);
+  if (!session)
+    return this.stop('error', 'Cannot login to token.');
 
-  // Remove any existing entries matching this.label (regadless of key id)
-  entd.pkcs11.remove(this.label);
+  // Remove any existing entries matching this.id.
+  this.policy.removeObjectsById(session, this.id);
 
-  // Initialize the slot token object
-  var slot1 = new entd.pkcs11.SlotObject(this.label);
+  try {
+    // Generate a key pair.
+    this.policy.generateKeyPair(session, this.id, this.label);
+  } catch(e) {
+    session.close();
+    return this.stop('error', 'Failed to create key on PKCS#11 device: ' + e);
+  }
 
-  // Generate a key pair
-  slot1.generateKeyPair(this.key_identifier, this.key_passphrase);
+  this.stop('key', 'Key generation complete');
 
-  // create a CSR using the generated key pair
-  var csr = new slot1.CSR(subject);
+  session.close();
+
+  this.start('csr', 'Initiating Certificate Signing Request');
+
+  // create a CSR using the generated key pair.
+  var engine = this.policy.engine;
+  this.info('Generating CSR for id: ' + this.id + ' subject: ' + subject);
+  var csr = engine.createCSR(this.id, subject);
 
   // Copy the CSR as a string to the environment.
-  this.setVariable('csr', csr.toString());
+  this.setVariable('csr', csr.toFormat(CSR.CSR_FORMAT_PEM_TEXT));
 
   // Copy all of the POST parameters after replacing the variable references.
   if ('post_params' in this.csr) {
@@ -905,7 +1114,7 @@ function getCert() {
   if ('auth' in this.issuer)
     r.auth = this.replaceVars(this.issuer.auth);
 
-  // Stash this so that we can refer to it later in on onIssuanceComplete
+  // Stash this so that we can refer to it later in on onIssuanceComplete.
   r.certificate = this;
 
   // We use this property in the callbacks to make log messages more useful.
@@ -929,18 +1138,26 @@ function onIssuanceComplete(request, response) {
     return;
   }
 
-  // Make a new certificate object from the response content.
-  var cert = new entd.pkcs11.Certificate(response.content);
+  // X.509 PEM encoded certificate response.
+  var cert = response.content;
 
-  // ...and store it in the TPM.
-  var slot = this.findSlotByLabel(this.label);
-  if (!slot) {
-    this.stop('error', "Can't add certificate: missing slot object");
-    return;
-  }
+  // Open a session with the device.
+  var pkcs11 = this.policy.pkcs11.api;
+  var token = pkcs11.slots[Policy.PKCS11_SLOT].token;
+  var session = this.policy.loginToken(token, Session.CKU_USER);
+  if (!session)
+    return this.stop('error', "Can't add certificate: missing session object");
 
-  slot.addCertificate(cert);
+  // Convert response to DER.
+  var x509 = new entd.crypto.OpenSSL.X509(cert, X509.X509_FORMAT_PEM_TEXT);
+  var x509_der = x509.toFormat(X509.X509_FORMAT_DER);
+
+  // Store certificate in the PKCS#11 token.
+  this.storeCertificate(session, this.id, this.label, this.subject, x509_der);
+
   this.stop('cert');
+
+  session.close();
 };
 
 Policy.prototype.setBrowserPolicy =
@@ -1242,6 +1459,7 @@ function cb_listTokens() {
       tokenData[key] = slot.token[key];
 
     tokenData.uintFlags = tokenData.flags;
+
     tokenData.flags = new Object();
 
     for (var key in Token) {
@@ -1282,12 +1500,18 @@ function cb_listTokens() {
  */
 Policy.Callbacks.prototype['cb:listCertificates'] =
 function cb_listCerts(arg) {
+  var pkcs11 = this.policy.pkcs11.api;
+  if (!pkcs11)
+    return Policy.CallbackError('Pkcs11 not initialized');
+
   var rv = {};
 
   for (key in this.policy.certificates) {
     var cert = this.policy.certificates[key];
+    var token = pkcs11.slots[Policy.PKCS11_SLOT].token;
+
     rv[key] = {
-      id: cert.id,
+      id: cert.type,
       key: key,
       label: cert.label,
       userVariables: cert.userVariables,
@@ -1349,7 +1573,9 @@ function cb_initiateCSR(arg) {
     }
   }
 
-  cert.initiateCSR();
+  // Create CSR asynchronously.
+  entd.setTimeout(function() { cert.initiateCSR() }, 1);
+
   return Policy.CallbackSuccess(cert.info('Initiating CSR for: ' + cert.label));
 };
 
@@ -1726,4 +1952,29 @@ function RawString(str) {
 util.isRawString =
 function isRawString(str) {
   return str instanceof String && str.isRaw_ == true;
+}
+
+/**
+ * Convert a number to hex format.
+ */
+util.intToHex =
+function intToHex(val) {
+  var hex = Number(val).toString(16);
+  return hex;
+}
+
+/**
+ * Convert a string into its binary representation.
+ */
+util.stringToBinaryString =
+function stringToBinaryString(str) {
+  var result = [];
+  for (i = 0; i < str.length; i++) {
+    var d = str.charCodeAt(i);
+    var h = d.toString(16);
+    if (h.length == 1)
+      result.push('0');
+    result.push(h);
+  }
+  return result.join('');
 }
