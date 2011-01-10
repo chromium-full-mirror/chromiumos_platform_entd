@@ -277,7 +277,6 @@ function loadCertificates() {
 client.installCert =
 function installCert(cert, variables) {
   var key = cert.key;
-  var isInstallComplete = false;
 
   // Called for any kind of error from the enterprise daemon.
   function onerror(retval) {
@@ -325,11 +324,8 @@ function installCert(cert, variables) {
                                   onerror);
     } else if (cert.state == 'stop:ready') {
       $('#cert-status').find('.cert-install').attr('status', 'green');
-      if (!isInstallComplete) {
-        isInstallComplete = true;
-        client.showSuccess('Your certificate has been installed',
-                           'Certificate Installed');
-      }
+      client.showSuccess('Your certificate has been installed',
+                         'Certificate Installed');
       return;
     } else if (cert.state == 'stop:error') {
       client.showCertDetails(cert);
