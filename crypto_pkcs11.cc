@@ -499,6 +499,8 @@ bool Pkcs11::Session::InitializeTemplate(
   BindMethod(instance_t, &Pkcs11::Session::FindObjects, "findObjects");
   BindMethod(instance_t, &Pkcs11::Session::CreateObject, "createObject");
 
+  BindMethod(instance_t, &Pkcs11::Session::LogoutAndClose, "logoutAndClose");
+
   return true;
 }
 
@@ -543,6 +545,12 @@ v8::Handle<v8::Value> Pkcs11::Session::Close(const v8::Arguments& args) {
   if (!session_handle_)
     return ThrowException("Not open");
 
+  if (logged_in_) {
+    if (!OkOrThrow(C_Logout(session_handle_)))
+      return v8::Undefined();
+    logged_in_ = false;
+  }
+
   OkOrThrow(C_CloseSession(session_handle_));
   session_handle_ = 0;
   return v8::Undefined();
@@ -561,6 +569,8 @@ v8::Handle<v8::Value> Pkcs11::Session::Login(const v8::Arguments& args) {
 
   v8::String::AsciiValue ascii_pin(args[1]);
 
+  logged_in_ = false;
+
   CK_RV rv = C_Login(session_handle_, user_type,
                      reinterpret_cast<CK_CHAR_PTR>(*ascii_pin),
                      ascii_pin.length());
@@ -571,11 +581,20 @@ v8::Handle<v8::Value> Pkcs11::Session::Login(const v8::Arguments& args) {
   if (!OkOrThrow(rv))
     return v8::Undefined();
 
+  logged_in_ = true;
   return v8::True();
 }
 
 v8::Handle<v8::Value> Pkcs11::Session::Logout(const v8::Arguments& args) {
   OkOrThrow(C_Logout(session_handle_));
+  logged_in_ = false;
+  return v8::Undefined();
+}
+
+v8::Handle<v8::Value> Pkcs11::Session::LogoutAndClose(
+  const v8::Arguments& args) {
+  Logout(args);
+  Close(args);
   return v8::Undefined();
 }
 

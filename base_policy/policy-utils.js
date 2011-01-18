@@ -494,7 +494,7 @@ function setTokenPins(token, userType, oldPin, newPin) {
       this.stop(token, 'error', 'Failed to login to token');
   } catch (ex) {
     this.stop(token, 'error', 'Exception initializing PIN: ' + ex);
-    session.close();
+    session.logoutAndClose();
     return false;
   }
 
@@ -505,7 +505,7 @@ function setTokenPins(token, userType, oldPin, newPin) {
     this.info('PIN Reset complete.');
   } catch (ex) {
     this.stop(token, 'error', 'Exception changing PIN: ' + ex);
-    session.close();
+    session.logoutAndClose();
     return false;
   }
 
@@ -515,7 +515,7 @@ function setTokenPins(token, userType, oldPin, newPin) {
     this.stop(token, pinType);
   }
 
-  session.close();
+  session.logoutAndClose();
   return true;
 }
 
@@ -813,6 +813,8 @@ function loginToken(token, sessionType, pin) {
 
   var session = null;
 
+  this.info('Opening session and logging into token.');
+
   try {
     token.closeAllSessions();
     session = token.openSession(Token.CKF_RW_SESSION);
@@ -824,12 +826,12 @@ function loginToken(token, sessionType, pin) {
   try {
     if (!session.login(sessionType, pin)) {
       this.error('Unable to log in user into token.');
-      session.close();
+      session.logoutAndClose();
       return null;
     }
   } catch (ex) {
     this.error('Failed to login user into token: ' + ex);
-    session.close();
+    session.logoutAndClose();
     return null;
   }
 
@@ -952,11 +954,11 @@ function isInstalled() {
     var cert = policy.findCertificateById(session, this.id);
     var key = policy.findPrivateKeyById(session, this.id);
 
-    session.close();
+    session.logoutAndClose();
 
     return (cert != null && key != null);
   } catch(ex) {
-    session.close();
+    session.logoutAndClose();
     this.error('Error checking certificate is installed: ', ex);
   }
 
@@ -1002,13 +1004,13 @@ function initiateCSR() {
     // Generate a key pair.
     this.policy.generateKeyPair(session, this.id, this.label);
   } catch(e) {
-    session.close();
+    session.logoutAndClose();
     return this.stop('error', 'Failed to create key on PKCS#11 device: ' + e);
   }
 
   this.stop('key', 'Key generation complete');
 
-  session.close();
+  session.logoutAndClose();
 
   this.start('csr', 'Initiating Certificate Signing Request');
 
@@ -1157,7 +1159,7 @@ function onIssuanceComplete(request, response) {
 
   this.stop('cert');
 
-  session.close();
+  session.logoutAndClose();
 };
 
 Policy.prototype.setBrowserPolicy =

@@ -125,8 +125,10 @@ class Pkcs11 : public Scriptable<Pkcs11> {
       return "entd.crypto.Pkcs11.Session";
     };
 
-    Session() : session_handle_(0) {}
+    Session() : session_handle_(0), logged_in_(false) {}
     ~Session() {
+      if (logged_in_)
+        C_Logout(session_handle_);
       if (session_handle_)
         C_CloseSession(session_handle_);
     }
@@ -152,12 +154,16 @@ class Pkcs11 : public Scriptable<Pkcs11> {
     v8::Handle<v8::Value> CreateObject(const v8::Arguments& args);
     v8::Handle<v8::Value> GenerateKeyPair(const v8::Arguments& args);
 
+    // Helper functions.
+    v8::Handle<v8::Value> LogoutAndClose(const v8::Arguments& args);
+
     // Invoke the 'bool Refresh()' method from script.
     v8::Handle<v8::Value> CallRefresh(const v8::Arguments& args);
 
    private:
     CK_SLOT_ID slot_id_;
     CK_SESSION_HANDLE session_handle_;
+    bool logged_in_;
   };
 
   class Object : public Scriptable<Object> {
