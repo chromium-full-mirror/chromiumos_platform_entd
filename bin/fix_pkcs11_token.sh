@@ -31,14 +31,10 @@ is_token_broken() {
     return 0
   fi
 
-  if [ "/var/lib/.tpm_owned" -nt "$USER_TOKEN_DIR" ]; then
-    log "PKCS#11 token for $USERNAME is from a previous TPM owner."
-    return 0
-  fi
-
   if [ ! -e "$USER_TOKEN_DIR/PRIVATE_ROOT_KEY.pem" -o \
        ! -e "$USER_TOKEN_DIR/TOK_OBJ/70000000" ]; then
-    log "PKCS#11 token for $USERNAME is missing some files."
+    log "PKCS#11 token for $USERNAME is missing some files.  Possibly not yet"
+    log "initialized?  TOK_OBJ contents were $(echo $USER_TOKEN_DIR/TOK_OBJ/*)."
     return 0
   fi
 
