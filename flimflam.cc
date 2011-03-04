@@ -12,6 +12,7 @@
 #include "base/logging.h"
 #include "base/string_util.h"
 #include "cros/chromeos_network.h"
+#include "cros/chromeos_network_deprecated.h"
 #include "entd/entd.h"
 #include "entd/utils.h"
 
