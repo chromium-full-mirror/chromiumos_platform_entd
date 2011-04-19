@@ -30,6 +30,10 @@ class Tpm : public Scriptable<Tpm> {
                                             const v8::AccessorInfo& info);
   static v8::Handle<v8::Value> GetStatusString(v8::Local<v8::String> property,
                                                const v8::AccessorInfo& info);
+  static v8::Handle<v8::Value> IsTokenReady(v8::Local<v8::String> property,
+                                            const v8::AccessorInfo& info);
+
+  static bool cryptohome_init_pkcs11;
 };
 
 }  // namespace entd

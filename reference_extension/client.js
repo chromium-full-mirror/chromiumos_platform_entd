@@ -12,6 +12,8 @@ var client = new Object();
  */
 client.policyCallbackPort = 5199;
 
+client.cryptohome_init_pkcs11 = false;
+
 /**
  * Initialize the client.
  */
@@ -172,6 +174,12 @@ function loadInfo() {
           text('Ready').
           attr('status', 'green');
 
+        // Use presence of isTokenReady to determine if
+        // cryptohome_init_pkcs11 is true.
+        // TODO(crosbug.com/14277): Remove this conditional and code
+        // to recognize if TPM has been initialized (only check token).
+        client.cryptohome_init_pkcs11 = 'isTokenReady' in pkcs11;
+
         if (retval.data.isLibcrosLoaded && !retval.data.tpm.isEnabled) {
           if (!tpmError) {
             client.showError("Your TPM is not enabled.  Please enable " +
@@ -199,6 +207,19 @@ function loadInfo() {
 
             $('#entd-message').
               text('Waiting for TPM.').
+              attr('status', 'red');
+            tpmError = true;
+          }
+        } else if (retval.data.isLibcrosLoaded &&
+                   client.cryptohome_init_pkcs11 &&
+                   !pkcs11.isTokenReady) {
+          if (!tpmError) {
+            client.showAlert('Please wait while your TPM Token is being ' +
+                             'created.  This dialog should go away on its ' +
+                             'own when the process completes.', 'Alert',
+                             options);
+            $('#entd-message').
+              text('Waiting for TPM Token.').
               attr('status', 'red');
             tpmError = true;
           }
@@ -387,6 +408,7 @@ function installCert(cert, variables) {
  *
  * This causes the token initialization progress dialog to be shown, and manages
  * the asynchronous initialization of a token.
+ * TODO(crosbug.com/14277): Remove token initialization UI.
  */
 client.initToken =
 function initToken(token, force) {
@@ -957,8 +979,8 @@ function renderToken(token) {
   $(li).html(
       '<table width="100%">' +
       '<tr><td><span class="desc"></span> (<span class="label"></span>)</td>' +
-      '<td rowspan="2" width="1%"><button>Initialize</button></td></tr>' +
-      '<tr><td class="status"></td></tr></table>');
+      '<td rowspan="2" width="1%"><button class="init-button">Initialize' +
+      '</button></td></tr><tr><td class="status"></td></tr></table>');
 
   $(li).find('button').click(function () {
       client.onTokenClick_(client.tokens[token.slotId]);
@@ -1000,7 +1022,13 @@ function refreshToken(li, token) {
   $('.label', li).text(token.label || 'Unlabeled');
   $('.status', li).attr('status', color);
   $('.status', li).text(status);
-  $('button', li).text(color == 'red' ? 'Initialize' : 'Reinitialize');
+  if (client.cryptohome_init_pkcs11) {
+    // If automatic initialization is enabled, do not give the user
+    // the option to initialize.
+    $('.init-button', li).css('display', 'none');
+  } else {
+    $('button', li).text(color == 'red' ? 'Initialize' : 'Reinitialize');
+  }
 }
 
 /**

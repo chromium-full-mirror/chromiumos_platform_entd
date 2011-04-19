@@ -1241,7 +1241,7 @@ function PolicyCallbacks(policy) {
  */
 Policy.Callbacks.prototype['cb:info'] =
 function cb_info() {
-  return Policy.CallbackSuccess({
+  var callback_data = {
    description: this.policy.manifest.description,
    version: this.policy.manifest.version,
    username: entd.username,
@@ -1253,13 +1253,19 @@ function cb_info() {
      isOwned: (entd.isLibcrosLoaded ? entd.tpm.isOwned : true),
      isBeingOwned: (entd.isLibcrosLoaded ? entd.tpm.isBeingOwned : false),
      statusString: (entd.isLibcrosLoaded ? entd.tpm.statusString :
-                    "libcros not loaded"),
+                    "libcros not loaded")
    },
    pkcs11: {
      state: this.policy.pkcs11.state,
      log: this.policy.getLog(this.policy.pkcs11)
    }
-  });
+  }
+  if ('isTokenReady' in entd.tpm) {
+    callback_data.pkcs11.isTokenReady =
+      (entd.isLibcrosLoaded ? entd.tpm.isTokenReady : false);
+  }
+
+  return Policy.CallbackSuccess(callback_data);
 };
 
 /**
@@ -1281,6 +1287,7 @@ function cb_info() {
  * if the operation completes successfully but the token is not ready due to
  * some unexpected condition, it will become 'stop:user-pin'.  On error it will
  * become 'stop:error'.
+ * TODO(crosbug.com/14277): Remove SetPIN functions.
  */
 Policy.Callbacks.prototype['cb:setUserPin'] =
 function cb_setUserPin(arg) {
@@ -1413,6 +1420,7 @@ function cb_setPin_(arg) {
  * initialization is in progress the token state will be 'start:init'.  If the
  * operation completes successfully the token state will become 'stop:init'.
  * On error it will become 'stop:error'.
+ * TODO(crosbug.com/14277): Remove initToken function.
  */
 Policy.Callbacks.prototype['cb:initToken'] =
 function cb_initToken(arg) {
@@ -1668,6 +1676,8 @@ function CallbackSuccess(data) {
  */
 Policy.CallbackError =
 function CallbackError(data) {
+  // Log the error to syslogs for further diagnosis.
+  entd.syslog.error(data);
   return { status: 'error', data: data };
 };
 

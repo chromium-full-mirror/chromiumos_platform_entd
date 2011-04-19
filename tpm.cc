@@ -9,6 +9,8 @@
 
 namespace entd {
 
+bool Tpm::cryptohome_init_pkcs11 = false;
+
 bool Tpm::Initialize() {
   return true;
 }
@@ -52,6 +54,14 @@ bool Tpm::InitializeTemplate(
                           v8::Handle<v8::Value>(),  // Don't need any data.
                           v8::DEFAULT,  // DEFAULT AccessControl
                           v8::DontDelete);
+  if (cryptohome_init_pkcs11) {
+    instance_t->SetAccessor(v8::String::New("isTokenReady"),
+                            Tpm::IsTokenReady,
+                            0,  // readonly, so setter is NULL
+                            v8::Handle<v8::Value>(),  // Don't need any data.
+                            v8::DEFAULT,  // DEFAULT AccessControl
+                            v8::DontDelete);
+  }
 
   return true;
 }
@@ -101,6 +111,12 @@ v8::Handle<v8::Value> Tpm::GetStatusString(v8::Local<v8::String> property,
   std::string status;
   chromeos::CryptohomeGetStatusString(&status);
   return v8::String::New(status.c_str());
+}
+
+// static
+v8::Handle<v8::Value> Tpm::IsTokenReady(v8::Local<v8::String> property,
+                                        const v8::AccessorInfo& info) {
+  return v8::Boolean::New(chromeos::CryptohomePkcs11IsTpmTokenReady());
 }
 
 }  // namespace entd
