@@ -23,6 +23,11 @@ function onLoad() {
 
 client.onManifestLoaded =
 function onManifestLoaded() {
+  client.loadSessionId();
+}
+
+client.onSessionIdLoaded =
+function onSessionIdLoaded() {
   client.loadInfo();
 }
 
@@ -70,7 +75,6 @@ function getURL(url) {
 /**
  * Load the manifest.json file for this extension.
  *
- * Once it loads, set the title of the options page to match.
  */
 client.loadManifest =
 function loadManifest() {
@@ -90,6 +94,37 @@ function loadManifest() {
   };
 
   xhr.open('GET', client.getURL('manifest.json'));
+  xhr.send();
+};
+
+/**
+ * Load the session-id.json file for this session of entd.
+ *
+ */
+client.loadSessionId =
+function loadSessionId() {
+  var xhr = new XMLHttpRequest();
+  xhr.onreadystatechange = function () {
+    if (this.readyState != 4)
+      return;
+
+    if (this.status == 0) {
+      // Status is 0 rather than 200 for this.  I assume that's because we're
+      // loading from the chrome-extension: scheme, rather than a real
+      // web server.
+      if (this.responseText != "") {
+        client.session_id = JSON.parse(this.responseText);
+      } else {
+        // Assume an old Chrome OS is being used with this extension.
+        console.log('no session-id.json - old chrome os?');
+        client.session_id = { session_id: '' }
+      }
+      console.log('session_id: ' + this.responseText);
+      client.onSessionIdLoaded();
+    }
+  };
+
+  xhr.open('GET', client.getURL('session-id.json'));
   xhr.send();
 };
 
@@ -1134,6 +1169,7 @@ function invokePolicyCallback(name, arg, oncomplete) {
            '/dispatch');
   xhr.setRequestHeader('X-Entd-Request',
                        client.manifest.requestHeaderValue || 'magic');
+  xhr.setRequestHeader('X-Entd-Session-Id', client.session_id.session_id);
   xhr.setRequestHeader('Content-Type', 'application/json; charset=UTF-8');
   xhr.send(JSON.stringify({'function': name, 'argument': arg}));
 };

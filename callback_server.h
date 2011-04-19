@@ -55,14 +55,6 @@ class CallbackServer : public JSObjectWrapper<CallbackServer> {
     return true;
   }
 
-  virtual std::string request_header_value() {
-    return request_header_value_;
-  }
-
-  virtual void set_request_header_value(std::string value) {
-    request_header_value_ = value;
-  }
-
   // Start the callback server with a particular set of callbacks and
   // on a given port number.
   virtual bool Start(v8::Handle<v8::Object> callbacks, int port);
@@ -88,6 +80,14 @@ class CallbackServer : public JSObjectWrapper<CallbackServer> {
   };
   virtual bool IsBusy() { return busy_; }
 
+  static void set_session_id(const std::string& session_id) {
+    session_id_ = session_id;
+  }
+
+  static std::string session_id() {
+    return session_id_;
+  }
+
   static std::string required_origin;
 
  private:
@@ -100,8 +100,8 @@ class CallbackServer : public JSObjectWrapper<CallbackServer> {
   // JS Object containing the callback functions we might dispatch to.
   v8::Persistent<v8::Object> callbacks_;
 
-  // The value required in the X-Entd-Request header.
-  std::string request_header_value_;
+  // X-Entd-Session-Id that must come in every request.
+  static std::string session_id_;
 
   // Non-null if the server is running.
   struct evhttp* evhttp_;

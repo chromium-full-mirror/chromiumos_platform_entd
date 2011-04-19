@@ -258,9 +258,32 @@ cmd_start() {
     return 1
   fi
 
+  local session_path="$extension/session-id.json"
+  # Remove session-id file as it should be ignored when verifying
+  # the signature.
+  log "removing $session_path"
+  rm -f "$session_path"
+
   if ! cmd_verify "$extension"; then
     return 1
   fi
+
+  # Remove session-id.json at exit to enable the extension to remain
+  # backward compatible with earlier versions of entd/entwife.
+  trap "rm -f $session_path" EXIT TERM
+
+  # Provide a way for a developer to disable session id to simplify
+  # iterating new extensions.
+  local local_session_id=""
+  if [ ! -r "/root/.disable-entd-session-id" ]; then
+    session_id=$(head -c 8 /dev/urandom | openssl md5)
+  fi
+
+  cat > "$session_path" <<EOF
+{
+  "session_id": "$session_id"
+}
+EOF
 
   local root_ca_option=""
   if [ -f "$extension/$ROOT_CA_FILE" ]; then
@@ -269,9 +292,14 @@ cmd_start() {
 
   local extid="$(basename $(dirname "$extension"))"
 
-  exec "$FLAGS_entd" --utility="$FLAGS_utility" "$root_ca_option" \
+  # Run entd in the background and wait on it - this allows the
+  # shell interpreter to catch TERM signal and clean up session_path.
+  "$FLAGS_entd" --utility="$FLAGS_utility" "$root_ca_option" \
     --policy="$extension/policy.js" --manifest="$extension/manifest.json" \
-    --username="$FLAGS_username" --callback-origin=chrome-extension://"$extid"
+    --username="$FLAGS_username" --callback-origin=chrome-extension://"$extid" \
+    --session-id="$session_id" &
+  local pid=$!
+  wait $pid
 }
 
 cmd_disapprove() {

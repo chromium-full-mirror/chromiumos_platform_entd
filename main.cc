@@ -56,6 +56,8 @@ static const char *kLibcrosLocation = "libcros-location";
 
 static const char *kCallbackOrigin = "callback-origin";
 
+static const char *kSessionId = "session-id";
+
 }  // namespace switches
 
 // Return values:
@@ -162,6 +164,13 @@ int main(int argc, char** argv) {
         switches::kCallbackOrigin);
     LOG(INFO) << "Setting callback origin: " <<
         entd::CallbackServer::required_origin;
+  }
+
+  if (cl->HasSwitch(switches::kSessionId)) {
+    entd::CallbackServer::set_session_id(cl->GetSwitchValueASCII(
+        switches::kSessionId));
+    LOG(INFO) << "Setting session id: " <<
+        entd::CallbackServer::session_id();
   }
 
   entd::Entd d;
