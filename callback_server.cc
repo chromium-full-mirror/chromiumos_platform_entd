@@ -4,7 +4,7 @@
 
 #include "entd/callback_server.h"
 
-#include <base/scoped_ptr.h>
+#include <base/memory/scoped_ptr.h>
 
 #include "entd/entd.h"
 
