@@ -54,10 +54,6 @@ static const char *kCallbackOrigin = "callback-origin";
 
 static const char *kSessionId = "session-id";
 
-// TODO(crosbug.com/14277): Remove option and assume it is true.
-static const char *kCryptohomeInitPkcs11 =
-    "cryptohome-init-pkcs11";
-
 }  // namespace switches
 
 // Return values:
@@ -137,11 +133,6 @@ int main(int argc, char** argv) {
     entd::Entd::libcros_location = cl->GetSwitchValueASCII(
         switches::kLibcrosLocation);
     LOG(INFO) << "Setting libcros location: " << entd::Entd::libcros_location;
-  }
-
-  if (cl->HasSwitch(switches::kCryptohomeInitPkcs11)) {
-    LOG(INFO) << "Expecting cryptohome to initialize the TPM token";
-    entd::Tpm::cryptohome_init_pkcs11 = true;
   }
 
   if (cl->HasSwitch(switches::kAllowFileIO)) {

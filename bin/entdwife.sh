@@ -292,16 +292,12 @@ EOF
 
   local extid="$(basename $(dirname "$extension"))"
 
-  local cryptohome_flag=""
-  if [ -r "/home/chronos/.cryptohome-init-pkcs11" ]; then
-    cryptohome_flag="--cryptohome-init-pkcs11"
-  fi
   # Run entd in the background and wait on it - this allows the
   # shell interpreter to catch TERM signal and clean up session_path.
   "$FLAGS_entd" --utility="$FLAGS_utility" "$root_ca_option" \
     --policy="$extension/policy.js" --manifest="$extension/manifest.json" \
     --username="$FLAGS_username" --callback-origin=chrome-extension://"$extid" \
-    --session-id="$session_id" $cryptohome_flag &
+    --session-id="$session_id" &
   local pid=$!
   wait $pid
 }
