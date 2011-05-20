@@ -14,7 +14,6 @@
 #include "entd/extensions.h"
 #include "entd/callback_server.h"
 #include "entd/http.h"
-#include "entd/pkcs11.h"
 #include "entd/tpm.h"
 #include "entd/utils.h"
 
@@ -29,10 +28,6 @@ static const char *kUsername = "username";
 static const char *kManifest = "manifest";
 static const char *kPolicy =   "policy";
 static const char *kUtility =  "utility";
-
-// Opencryptoki support is enabled by default.  Turn it off if you want to be
-// able to generate Certificates even if opencryptoki isn't available.
-static const char *kDisableOpencryptoki = "disable-opencryptoki";
 
 // Root CA for HTTPS requests.
 static const char *kRootCAFile = "root-ca-file";
@@ -162,11 +157,6 @@ int main(int argc, char** argv) {
   if (cl->HasSwitch(switches::kAllowDirtyExit)) {
     LOG(INFO) << "Allowing dirty exits.";
     entd::Entd::allow_dirty_exit = true;
-  }
-
-  if (cl->HasSwitch(switches::kDisableOpencryptoki)) {
-    LOG(INFO) << "Disabling opencryptoki.";
-    entd::Pkcs11::enable_opencryptoki = false;
   }
 
   if (cl->HasSwitch(switches::kCallbackOrigin)) {

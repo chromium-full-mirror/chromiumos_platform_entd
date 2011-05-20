@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium OS Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -343,14 +343,25 @@ function initPkcs11() {
 
   ++this.pkcs11.initCount;
 
-  this.info('Initializing PKCS11 library, attempt: ' +
+  this.info('Initializing PKCS#11 library, attempt: ' +
             this.pkcs11.initCount);
+
+  if ('isTokenReady' in entd.tpm) {
+    if (!entd.tpm.isTokenReady) {
+      // The TPM token is not yet initialized by cryptohomed and we
+      // must not load PKCS11 until it has finished.  Re-check again
+      // in a second.
+      this.info('TPM token not yet initialized, delaying library load.');
+      entd.setTimeout(util.bindp(this, "initPkcs11"), 1000);
+      return false;
+    }
+  }
 
   try {
     this.pkcs11.api = new entd.crypto.Pkcs11();
     this.info('entd.cryto.Pkcs11 initialized.');
   } catch (ex) {
-    this.error('PKCS11 library failed to initialize: ' + ex);
+    this.error('PKCS#11 library failed to initialize: ' + ex);
     this.pkcs11.error = ex;
   }
 

@@ -25,7 +25,6 @@ class Http;
 class NativeTimeout;
 class Syslog;
 class Timeout;
-class Pkcs11;
 
 class Entd : public JSObjectWrapper<Entd> {
  public:
@@ -219,7 +218,6 @@ class Entd : public JSObjectWrapper<Entd> {
   scoped_ptr<CallbackServer> callback_server_;
   scoped_ptr<Flimflam> flimflam_;
   scoped_ptr<Syslog> syslog_;
-  scoped_ptr<Pkcs11> pkcs11_;
   v8::Persistent<v8::Context> context_;
 
   DISALLOW_COPY_AND_ASSIGN(Entd);

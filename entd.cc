@@ -18,7 +18,6 @@
 #include "entd/callback_server.h"
 #include "entd/flimflam.h"
 #include "entd/http.h"
-#include "entd/pkcs11.h"
 #include "entd/crypto_openssl.h"
 #include "entd/crypto_pkcs11.h"
 #include "entd/scriptable.h"
@@ -430,16 +429,6 @@ v8::Handle<v8::Object> Entd::ConstructEntd() {
   // Hook up the entd.crypto.OpenSSL constructor.
   crypto_obj->Set(v8::String::NewSymbol("OpenSSL"),
                   crypto::OpenSSL::constructor_template()->GetFunction());
-
-  // Build the (soon-to-be-deprecated) entd.pkcs11 object
-  pkcs11_.reset(new Pkcs11());
-  if (!pkcs11_->Initialize()) {
-    LOG(ERROR) << "Error initializing entd.pkcs11";
-    exit(1);
-  }
-
-  entd->Set(v8::String::New("pkcs11"),
-            pkcs11_->obj(), v8::ReadOnly);
 
   Browser::Reference browser = Browser::New();
   if (!browser->Initialize(this)) {
