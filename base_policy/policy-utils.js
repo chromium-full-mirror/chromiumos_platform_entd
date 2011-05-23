@@ -346,13 +346,18 @@ function initPkcs11() {
   this.info('Initializing PKCS#11 library, attempt: ' +
             this.pkcs11.initCount);
 
+  // Compute retry interval, starting at 1 second, doubling every failure,
+  // until reaching an hour between checks.
+  var doubling = Math.min(this.pkcs11.initCount - 1, 12);
+  var next_retry = 1000 * (1 << doubling);
+
   if ('isTokenReady' in entd.tpm) {
     if (!entd.tpm.isTokenReady) {
       // The TPM token is not yet initialized by cryptohomed and we
       // must not load PKCS11 until it has finished.  Re-check again
       // in a second.
-      this.info('TPM token not yet initialized, delaying library load.');
-      entd.setTimeout(util.bindp(this, "initPkcs11"), 1000);
+      this.info('Cryptohome has not yet initialized TPM token, delaying.');
+      entd.setTimeout(util.bindp(this, "initPkcs11"), next_retry);
       return false;
     }
   }
@@ -366,8 +371,8 @@ function initPkcs11() {
   }
 
   if (!this.pkcs11.api) {
-    // Initialization failed, try again in a second.
-    entd.setTimeout(util.bindp(this, "initPkcs11"), 1000);
+    // Initialization failed, try again.
+    entd.setTimeout(util.bindp(this, "initPkcs11"), next_retry);
     return false;
   }
 
