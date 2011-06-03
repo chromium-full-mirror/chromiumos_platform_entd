@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium OS Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,6 +32,11 @@ static const char* kOpenSSLConfigName = "entd";
 
 void dispatch_OnTimeout(int fd, short flags, void* arg);
 
+inline struct timeval CreateTimeoutInMs(uint64_t milliseconds) {
+  struct timeval tv = { milliseconds / 1000, milliseconds % 1000 * 1000 };
+  return tv;
+}
+
 // Class to represent a pending timeout event.
 class Timeout {
  public:
@@ -55,7 +60,7 @@ class Timeout {
     handle_ = (((0xFFFF & reinterpret_cast<size_t>(this)) << 16) |
                ++Timeout::sequence);
 
-    struct timeval tv = { 0, interval * 1000 };
+    struct timeval tv = CreateTimeoutInMs(interval);
     event_ = new struct event;
     event_set(event_, 0, 0, &dispatch_OnTimeout, this);
     event_add(event_, &tv);
@@ -122,7 +127,7 @@ class NativeTimeout
 
   // Calling Start on a running timeout will simply reset the timer
   void Start() {
-    struct timeval tv = { 0, interval_ };
+    struct timeval tv = CreateTimeoutInMs(interval_);
     event_add(event_, &tv);
   }
 
@@ -727,7 +732,7 @@ Timeout* Entd::ClearTimeout(uint32_t timeout_handle) {
 
 void Entd::ScheduleShutdown(uint32_t code, uint32_t interval) {
   exit_code_ = code;
-  struct timeval tv = { 0, interval * 1000 };
+  struct timeval tv = CreateTimeoutInMs(interval);
   event_loopexit(&tv);
 }
 
