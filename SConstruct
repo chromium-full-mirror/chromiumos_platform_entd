@@ -33,7 +33,10 @@ def build():
     LINKFLAGS=['-L${V8_LIB}'],
    )
 
-  env.ParseConfig('pkg-config --cflags --libs libcurl dbus-glib-1 libpcrecpp')
+  pkgconfig = os.environ.get('PKG_CONFIG', 'pkg-config')
+  env.ParseConfig(
+      pkgconfig + ' --cflags --libs libcurl dbus-glib-1 libpcrecpp'
+  )
 
   end_program = env.Program(
       '${BUILD_DIR}/entd',
