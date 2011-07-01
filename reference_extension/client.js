@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium OS Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -85,10 +85,8 @@ function loadManifest() {
     if (this.readyState != 4)
       return;
 
-    if (this.status == 0) {
-      // Status is 0 rather than 200 for this.  I assume that's because we're
-      // loading from the chrome-extension: scheme, rather than a real
-      // web server.
+    if (this.status == 0 || this.status == 200) {
+      // Status was 0 in early versions of Chrome.
       client.manifest = JSON.parse(this.responseText);
       console.log('manifest: ' + this.responseText);
       client.onManifestLoaded();
@@ -110,10 +108,8 @@ function loadSessionId() {
     if (this.readyState != 4)
       return;
 
-    if (this.status == 0) {
-      // Status is 0 rather than 200 for this.  I assume that's because we're
-      // loading from the chrome-extension: scheme, rather than a real
-      // web server.
+    if (this.status == 0 || this.status == 200) {
+      // Status was 0 in earlier versions of Chrome.
       if (this.responseText != "") {
         client.session_id = JSON.parse(this.responseText);
       } else {
@@ -154,6 +150,19 @@ function loadInfo() {
 
       $('#user-status').
         text(retval.data.username);
+
+      if ('systemVersion' in retval.data) {
+        var board = 'Unknown hardware';
+        if ('lsbRelease' in retval.data &&
+            'CHROMEOS_RELEASE_BOARD' in retval.data.lsbRelease) {
+          board = retval.data.lsbRelease.CHROMEOS_RELEASE_BOARD;
+        }
+        $('#system-info').text('Chrome OS ' +
+                               retval.data.systemVersion.join('.') + ', ' +
+                               board);
+      } else {
+        $('#system-info').text('Chrome OS earlier than 0.14');
+      }
 
       var pkcs11 = retval.data.pkcs11;
       if (pkcs11.state != 'stop:ready') {

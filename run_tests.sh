@@ -1,18 +1,25 @@
 #!/bin/bash
 
-# Copyright (c) 2010 The Chromium OS Authors. All rights reserved.
+# Copyright (c) 2011 The Chromium OS Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 # TODO: Get these tests running in a cross-platform fashion from the src_test
 # stanza of the entd ebuild.
 
+. "$(dirname "$0")/../../scripts/common.sh"
+
+DEFINE_boolean skip_tpm ${FLAGS_FALSE} "Skip tests requiring TPM"
+
+# Parse command line and update positional args
+FLAGS "$@" || exit 1
+eval set -- "${FLAGS_ARGV}"
+
 USERNAME="user@google.com"
 ALLOW_DIRTY_EXIT=1
 ALLOW_FILE_IO=1
 ENABLE_OPENCRYPTOKI="1"
-SYSROOT="/build/x86-generic"
-RUN32="../../scripts/run_32bit.sh"
+RUN32="./run_32bit.sh"
 ENTD="$RUN32 out/i686-pc-linux-gnu/entd --"
 PKCSSLOTD="$RUN32 $SYSROOT/usr/sbin/pkcsslotd --"
 PKCS_SLOT="$RUN32 $SYSROOT/usr/sbin/pkcs_slot --"
@@ -70,6 +77,7 @@ function greptest {
   fi
 
   local out
+  echo $cmd
   out=$($cmd 2>&1)
   local code=$?
 
@@ -204,18 +212,22 @@ function slow_tests() {
 
   greptest "simple-shutdown.js" "LOOKS OK"
 
+  local session="test-session"
+
   # Fire off this bg task to make an http request
   (sleep 2; \
     curl --data-binary '{"function": "stop"}' \
     -H "Content-Type: application/json; charset=UTF-8" \
     -H "X-Entd-Request: test-magic" \
+    -H "X-Entd-Session-Id: $session" \
     -H "Origin: test-origin" \
     localhost:5200/dispatch -so /dev/null) &
 
   # Then start up the callback server before the timeout fires.  This tests
   # that we can successfully talk to the callback server, and that it respects
   # valid X-Entd-Request and Origin headers.
-  greptest "simple-callback.js --callback-origin=test-origin" \
+  greptest "simple-callback.js --callback-origin=test-origin \
+           --session-id=$session" \
     "Stopping callback server"
 
   # Now fire off a bg task to make an http request with a bogus Origin header.
@@ -223,6 +235,7 @@ function slow_tests() {
     curl --data-binary '{"function": "stop"}' \
     -H "Content-Type: application/json; charset=UTF-8" \
     -H "X-Entd-Request: test-magic" \
+    -H "X-Entd-Session-Id: $session" \
     -H "Origin: bogus-origin" \
     localhost:5200/dispatch -so /dev/null) &
 
@@ -231,20 +244,25 @@ function slow_tests() {
     curl --data-binary '{"function": "stop"}' \
     -H "Content-Type: application/json; charset=UTF-8" \
     -H "X-Entd-Request: test-magic" \
+    -H "X-Entd-Session-Id: $session" \
     -H "Origin: test-origin" \
     localhost:5200/dispatch -so /dev/null) &
 
   # Then start up the callback server before the timeouts fire.  This tests
   # that the bogus Origin header is properly rejected.
-  greptest "simple-callback.js --callback-origin=test-origin" \
+  greptest "simple-callback.js --callback-origin=test-origin \
+            --session-id=$session" \
     "Bad or missing Origin header"
 }
 
 function all_tests() {
   basic_tests
   http_tests
-  crypto_pkcs11_tests
-  pkcs11_tests
+  if [[ ${FLAGS_skip_tpm} -ne ${FLAGS_TRUE} ]]; then
+    warn "Assuming PKCS11/TPM is set up. Pass --skip_tpm otherwise."
+    crypto_pkcs11_tests
+    pkcs11_tests
+  fi
   slow_tests
 }
 

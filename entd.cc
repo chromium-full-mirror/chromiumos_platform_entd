@@ -28,7 +28,7 @@
 namespace entd {
 
 using std::string;
-static const char* kOpenSSLConfigName = "entd";
+static const char kOpenSSLConfigName[] = "entd";
 
 void dispatch_OnTimeout(int fd, short flags, void* arg);
 
@@ -36,6 +36,8 @@ inline struct timeval CreateTimeoutInMs(uint64_t milliseconds) {
   struct timeval tv = { milliseconds / 1000, milliseconds % 1000 * 1000 };
   return tv;
 }
+
+static const char kDefaultLsbRelease[] = "/etc/lsb-release";
 
 // Class to represent a pending timeout event.
 class Timeout {
@@ -319,7 +321,8 @@ v8::Handle<v8::Value> dispatch_GC(const v8::Arguments& args) {
 }
 
 Entd::Entd()
-    : callback_server_(NULL),
+    : lsb_release_filename_(kDefaultLsbRelease),
+      callback_server_(NULL),
       flimflam_(new Flimflam()),
       syslog_(new Syslog()) {
   ::g_type_init();
@@ -499,6 +502,16 @@ bool Entd::StartScriptingEnvironment() {
   // Set entd.username and entd.hostname.
   entd->Set(v8::String::NewSymbol("username"),
             v8::String::New(username_.c_str()), v8::ReadOnly);
+
+  // Set entd.lsbRelease to the contents the lsb_release file.
+  std::string lsb_file_contents;
+  if (!file_util::ReadFileToString(FilePath(lsb_release_filename_),
+                                   &lsb_file_contents)) {
+    LOG(ERROR) << "Could not read " << lsb_release_filename_;
+    return false;
+  }
+  entd->Set(v8::String::NewSymbol("lsbRelease"),
+            v8::String::New(lsb_file_contents.c_str()), v8::ReadOnly);
 
   size_t at_pos = username_.find("@");
   if (at_pos == std::string::npos || at_pos == username_.length() - 1) {

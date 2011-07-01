@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium OS Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -93,6 +93,11 @@ class Entd : public JSObjectWrapper<Entd> {
 
   const std::string& GetHostname() {
     return hostname_;
+  }
+
+  void SetLsbRelease(const std::string& filename) {
+    LOG(INFO) << "lsb-release file set to: '" << filename << "''";
+    lsb_release_filename_ = filename;
   }
 
   static const char* GetClassName() { return "entd"; }
@@ -200,6 +205,7 @@ class Entd : public JSObjectWrapper<Entd> {
   std::string utility_filename_;
   std::string manifest_filename_;
   std::string policy_filename_;
+  std::string lsb_release_filename_;
 
   // Starts out as just the hostname portion of the username, but may be
   // set to a subdomain of that by the manifest file.
