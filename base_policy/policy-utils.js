@@ -156,6 +156,69 @@ Policy.PKCS11_SO_PIN = '000000';
 Policy.PKCS11_USER_PIN = '111111';
 
 /**
+ * Parse an lsb-release file's contents.
+ * @param {string} contents File contents.
+ * @return {Object} dictionary of key/value pairs in that file.
+ */
+Policy.parseLsbRelease =
+function parseLsbRelease(contents) {
+  var lines = contents.split('\n');
+  var result = {};
+  for (var i = 0; i < lines.length; ++i) {
+    // Ignore comments.
+    if (lines[i].search(/[\s]*#/) >= 0)
+      continue;
+    var pieces = lines[i].split('=');
+    // Ignore lines not in X=Y format.
+    if (pieces.length != 2)
+      continue;
+    result[pieces[0]] = pieces[1];
+  }
+  return result;
+};
+
+/**
+ * Parse the ChromeOS version out of the parsed lsb-release file contents.
+ * @param {Object} parsedContents Dictionary of key/value pairs.
+ * @returns {Array.<Object>} Array of version numbers.
+ */
+Policy.parseChromeOSVersion =
+function parseChromeOSVersion(parsedContents) {
+  const versionKey = 'CHROMEOS_RELEASE_VERSION';
+  if (!(versionKey in parsedContents))
+    return [];
+  var versionString = parsedContents[versionKey];
+  var numbers = versionString.split('.');
+  return numbers.map(function(str) { return parseInt(str) });
+}
+
+/**
+ * Compare the given Chrome OS version to current version.
+ * @param {Array.<Number>} minVersion minimum version (inclusive) that will
+ * return true
+ * @param {Boolean} Whether minVersion is less or equal to given version.
+ */
+Policy.isAtLeastVersion =
+function isAtLeastVersion(minVersion) {
+  /* Search to find the first different version number.
+   * Consider that first different version element:
+   *   If current version is greater than min version, true.
+   *   If current version is less than min version, false.
+   * If there are no difference before one or other version ends:
+   *   If min version has more elements, false.
+   *   Otherwise the two are equal or current is slightly newer, true.
+   */
+  var i = 0;
+  while (i < entd.parsedChromeOSVersion.length && i < minVersion.length) {
+    if (entd.parsedChromeOSVersion[i] != minVersion[i]) {
+      return entd.parsedChromeOSVersion[i] > minVersion[i];
+    }
+    ++i;
+  }
+  return i == minVersion.length;
+}
+
+/**
  * Log an information status message.
  *
  * @param  {string} str The informational message to log.
@@ -1260,6 +1323,8 @@ function cb_info() {
   var callback_data = {
    description: this.policy.manifest.description,
    version: this.policy.manifest.version,
+   systemVersion: entd.parsedChromeOSVersion,
+   lsbRelease: entd.parsedLsbRelease,
    username: entd.username,
    browserPolicyChanged: this.policy.browserPolicyChanged,
    isLibcrosLoaded: entd.isLibcrosLoaded,
@@ -2006,3 +2071,17 @@ function stringToBinaryString(str) {
   }
   return result.join('');
 }
+
+/**
+ * Initialization of entd version information.  Must be done early and
+ * regardless of Policy being created since it may be used in
+ * policy.js's entd.Unload.
+ */
+function __init__() {
+  entd.parsedLsbRelease = Policy.parseLsbRelease(entd.lsbRelease);
+  entd.parsedChromeOSVersion =
+      Policy.parseChromeOSVersion(entd.parsedLsbRelease);
+  entd.syslog.info('Parsed ChromeOS version: ' + entd.parsedChromeOSVersion);
+}
+
+__init__();

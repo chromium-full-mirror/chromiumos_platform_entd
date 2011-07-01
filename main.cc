@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium OS Authors. All rights reserved.
+// Copyright (c) 2011 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,40 +19,42 @@
 
 namespace switches {
 // Path to search for extensions; can contain ~ or env variables (e.g. ${HOME})
-static const char *kExtensionPath = "extension-path";
+static const char kExtensionPath[] = "extension-path";
 
 // User Name
-static const char *kUsername = "username";
+static const char kUsername[] = "username";
 
 // Policy files
-static const char *kManifest = "manifest";
-static const char *kPolicy =   "policy";
-static const char *kUtility =  "utility";
+static const char kManifest[] = "manifest";
+static const char kPolicy[] =   "policy";
+static const char kUtility[] =  "utility";
 
 // Root CA for HTTPS requests.
-static const char *kRootCAFile = "root-ca-file";
+static const char kRootCAFile[] = "root-ca-file";
 
 // If specified, then self-signed server certs are ok for HTTPS
-static const char *kAllowSelfSigned = "allow-self-signed";
+static const char kAllowSelfSigned[] = "allow-self-signed";
 
 // If specified, then file operations are allowed (e.g. for testing)
-static const char *kAllowFileIO = "allow-file-io";
+static const char kAllowFileIO[] = "allow-file-io";
 
 // If specified, don't watch for signals.  This allows the process to exit
 // automatically when all events have been processed.  See the comment in
 // entd.h for a little more info.
-static const char *kAllowDirtyExit = "allow-dirty-exit";
+static const char kAllowDirtyExit[] = "allow-dirty-exit";
 
 // Syslogging is enabled by default if stdout is not a tty.  These flags can
 // be used to override the default logic.
-static const char *kEnableSyslog = "enable-syslog";
-static const char *kDisableSyslog = "disable-syslog";
+static const char kEnableSyslog[] = "enable-syslog";
+static const char kDisableSyslog[] = "disable-syslog";
 
-static const char *kLibcrosLocation = "libcros-location";
+static const char kLibcrosLocation[] = "libcros-location";
 
-static const char *kCallbackOrigin = "callback-origin";
+static const char kCallbackOrigin[] = "callback-origin";
 
-static const char *kSessionId = "session-id";
+static const char kSessionId[] = "session-id";
+
+static const char kSetLsbRelease[] = "lsb-release";
 
 }  // namespace switches
 
@@ -178,6 +180,9 @@ int main(int argc, char** argv) {
 
   if (!policy.empty())
     d.SetPolicyFile(policy);
+
+  if (cl->HasSwitch(switches::kSetLsbRelease))
+    d.SetLsbRelease(cl->GetSwitchValueASCII(switches::kSetLsbRelease));
 
   uint32_t rv = d.Run();
   LOG(INFO) << "Exiting entd with code: " << rv;

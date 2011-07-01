@@ -8,19 +8,22 @@ target platform using only the scons file (no need for emerge or ebuild), and
 can be launched using scripts/run_32bit.sh, or the run_tests.sh script from
 Entd.
 
+If you are not using /build/x86-generic as your x86-generic board, set
+DEFAULT_BOARD to the board you are using.
+
 To build an x86 version of entd, run...
 
   $ cd platform/entd
-  $ scons CHOST=i686-pc-linux-gnu SYSROOT=/build/x86-generic/ 
+  $ scons CHOST=i686-pc-linux-gnu SYSROOT=/build/$DEFAULT_BOARD/
 
 This will create a platform/entd/out/i686-pc-linux-gnu/ directory and place
 the target executable there.
 
 Then, to launch entd...
 
-  $ ../../scripts/run_32bit.sh ./out/i686-pc-linux-gnu/entd
+  $ ./run_32bit.sh ./out/i686-pc-linux-gnu/entd
   [0721/093224:INFO:main.cc(130)] Starting entd
-  ...
+  [0721/103352:WARNING:entd.cc(375)] Problem loading chromeos shared object: Couldn't load libcros from: /opt/google/chrome/chromeos/libcros.so error: /opt/google/chrome/chromeos/libcros.so: cannot open shared object file: No such file or directory
   [0721/093224:ERROR:entd.cc(471)] Can't determine hostname from username: 
   [0721/093224:INFO:main.cc(208)] Exiting entd with code: 1
 
@@ -29,7 +32,7 @@ got is a sign that we forgot --username.  In order to pass arguments through
 the run_32bit.sh script, we need to separate the script's arguments from
 entd's, using --, as in...
 
-  $ ../../scripts/run_32bit.sh ./out/i686-pc-linux-gnu/entd -- \
+  $ ./run_32bit.sh ./out/i686-pc-linux-gnu/entd -- \
     --username=user@example.com
   [0721/094034:INFO:main.cc(130)] Starting entd
   ...
@@ -40,7 +43,7 @@ Here we've failed to start because we haven't specified a policy file, we can
 do that using --policy.  Before that, we'll introduce a shell variable to make
 the command lines slightly shorter...
 
-  $ ENTD="../../scripts/run_32bit.sh ./out/i686-pc-linux-gnu/entd --"
+  $ ENTD="./run_32bit.sh ./out/i686-pc-linux-gnu/entd --"
   $ $ENTD --username=user@example.com --policy=test_data/hello-world.js
 
 This time you'll notice that entd doesn't exit on its own.  This is an
