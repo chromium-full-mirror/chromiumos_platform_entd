@@ -937,8 +937,8 @@ function findObjectById(session, type, id, typeString) {
         return null;
       default:
         // Too many objects.
-        this.error('Too many matching objects: ' + typeString);
-        return null;
+        this.warn('Picking first of multiple objects: ' + typeString);
+        return objList[0];
     }
   } else {
     this.error('error', 'Problem with PKCS#11 token.');
@@ -1036,9 +1036,9 @@ function isInstalled() {
     session.logoutAndClose();
 
     return (cert != null && key != null);
-  } catch(ex) {
+  } catch(e) {
     session.logoutAndClose();
-    this.error('Error checking certificate is installed: ', ex);
+    this.error('Error checking certificate is installed: ' + e);
   }
 
   return false;
