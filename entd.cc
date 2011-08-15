@@ -901,8 +901,6 @@ bool Entd::CallJson(string method_name, v8::Handle<v8::Value> arg,
     return false;
   }
 
-  v8::Handle<v8::Function> fun = v8::Handle<v8::Function>::Cast(value);
-
   v8::TryCatch try_catch;
   v8::Handle<v8::Value> call_result =
       utils::CallV8Function(json, method_name, 1, &arg);
