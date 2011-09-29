@@ -62,6 +62,24 @@ function reload() {
 }
 
 /**
+ * Determine if entd is deprecated based on the Chrome version.
+ */
+client.isEntdDeprecated =
+function isEntdDeprecated() {
+  var match = navigator.userAgent.match(/Chrome\/([\d]+)/);
+  if (!match || match.length != 2)
+    return false;
+  return match[1] >= 16;
+}
+
+/**
+ * Message used to indicate to the user that entd and entd-style
+ * extensions (like this reference extension) is deprecated.
+ */
+client.entdDeprecationMessage =
+    'This enterprise extension has been deprecated.';
+
+/**
  * Get a url to a resource inside the extension.
  *
  * @param {string} url The path portion of the URL you are interested in.
@@ -251,9 +269,13 @@ function loadInfo() {
         if (document.location.search.match(/reload/)) {
           msg = 'Please wait while the Enterprise Daemon restarts.';
         } else {
-          msg = 'The Enterprise Daemon has not started.  Make sure you have ' +
-              'approved an enterprise certificate authority, and log out or ' +
-              'reboot after installing the policy and approving.';
+	  if (client.isEntdDeprecated()) {
+	    msg = client.entdDeprecationMessage;
+	  } else {
+            msg = 'The Enterprise Daemon has not started.  Make sure you ' +
+		'have approved an enterprise certificate authority, and log ' +
+		'out or reboot after installing the policy and approving.';
+          }
         }
 
         client.showError(msg, 'Error', { details: JSON.stringify(retval) } );
@@ -700,7 +722,7 @@ function showAlert(message, title, options) {
   client.showModal_(alertDialog, options.showCallback);
 
   $('.dialog-title', alertDialog).text(title || 'Alert');
-  $('.dialog-message', alertDialog).text(message || 'NO MESSAGE PROVIDED');
+  $('.dialog-message', alertDialog).html(message || 'NO MESSAGE PROVIDED');
   $('.dialog-ok', alertDialog).css('display', 'inherit');
   $('.dialog-cancel', alertDialog).css('display', 'none');
   $('.dialog-graphic', alertDialog).text('!').attr('status', '');
