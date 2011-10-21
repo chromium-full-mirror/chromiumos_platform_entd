@@ -23,7 +23,7 @@ APPROVED_CA="approved-ca.pem"
 CANDIDATE_CA="candidate-ca.pem"
 ALLOW_CHAINING_FILE="chaining-allowed"
 
-. "/usr/lib/shflags" || (echo "error loading shflags"; exit 1)
+. "/usr/share/misc/shflags" || (echo "error loading shflags"; exit 1)
 
 DEFINE_string command "" \
   "Command to run; One of: sign, verify, or start" "c"
