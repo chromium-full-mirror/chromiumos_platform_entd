@@ -23,7 +23,7 @@ def build():
           'event',
           'curl',
           'crypto',
-          'opencryptoki',
+          'chaps',
           'chromeos',
           'crosapi'],
   )
