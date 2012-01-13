@@ -24,6 +24,7 @@ def build():
           'curl',
           'crypto',
           'chaps',
+          'chromeos',
           'crosapi'],
   )
 
@@ -34,7 +35,7 @@ def build():
 
   pkgconfig = os.environ.get('PKG_CONFIG', 'pkg-config')
   env.ParseConfig(
-      pkgconfig + ' --cflags --libs libchromeos libcurl libpcrecpp'
+      pkgconfig + ' --cflags --libs libcurl dbus-glib-1 libpcrecpp'
   )
 
   end_program = env.Program(
