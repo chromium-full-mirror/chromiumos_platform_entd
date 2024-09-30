@@ -1,8 +1,0 @@
-The presence of this file indicates to entd that the extension wants to be
-recognized as an enterprise policy.
-
-This is intended to prevent extensions from being accidently recognized as an
-enterprise policy, not as a security measure.
-
-It is likely that in the future, the policy distribution mechanism will change
-such that this file won't be necessary.

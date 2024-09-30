@@ -1,8 +1,0 @@
-{
-  "name": "Chrome OS Enterprise Policy",
-  "version": "0.1",
-  "description": "Chrome OS Enterprise Policy for google.com",
-  "policyParams": {
-    "certs": [ "corp-wifi" ]
-  }
-}
